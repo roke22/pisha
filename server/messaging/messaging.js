@@ -228,6 +228,7 @@ export function createMessaging(platform, { sessions }) {
     // (A notice about a worker counts as the worker's: it shares that worker's
     // queue cap and goes when the worker is deleted.)
     inTx(() => { for (const r of recipients) if (!skip.has(r)) pushUpdate(r, { message: msg }, from) })
+    bus.emit('message-stored', row)
     // Tell the sender who isn't connected: queued (coordinators) or, in a group,
     // skipped (workers).
     return offline.length ? { ...msg, pisha_offline_recipients: offline } : msg

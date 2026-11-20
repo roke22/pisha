@@ -13,7 +13,7 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tempdirs.mjs'
 import { freePort } from './ports.mjs'
-import { signatureOk } from '../server/webhooks/index.js'
+import { signatureOk, stripeSignatureOk, standardSignatureOk } from '../server/webhooks/index.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 
@@ -30,6 +30,25 @@ test('signatures: HMAC-SHA256 over the bytes as they came, or a token', () => {
   assert.ok(signatureOk('token', 'the-secret-123456', 'the-secret-123456', body))
   assert.ok(!signatureOk('token', 'the-secret-123456', 'the-secret-12345', body))
   assert.ok(!signatureOk('nothing', 'the-secret-123456', 'the-secret-123456', body))
+})
+
+test('signatures with a time: Stripe\'s and Standard Webhooks\', refused when old', () => {
+  const body = Buffer.from('{"id":"evt_1","type":"invoice.paid"}')
+  const now = Date.now(), t = Math.floor(now / 1000)
+  const stripe = (secret, at) => `t=${at},v1=${createHmac('sha256', secret).update(`${at}.`).update(body).digest('hex')}`
+  assert.ok(stripeSignatureOk('whsec_stripe123456', stripe('whsec_stripe123456', t), body, now))
+  assert.ok(stripeSignatureOk('whsec_stripe123456', `${stripe('whsec_stripe123456', t)},v1=${'0'.repeat(64)}`, body, now)) // (one of several)
+  assert.ok(!stripeSignatureOk('whsec_stripe123456', stripe('whsec_other1234567', t), body, now))
+  assert.ok(!stripeSignatureOk('whsec_stripe123456', stripe('whsec_stripe123456', t - 400), body, now)) // too old
+  assert.ok(!stripeSignatureOk('whsec_stripe123456', `t=${t}`, body, now))
+  const key = Buffer.alloc(24, 7)
+  const secret = `whsec_${key.toString('base64')}`
+  const std = (k, id, at) => `v1,${createHmac('sha256', k).update(`${id}.${at}.`).update(body).digest('base64')}`
+  assert.ok(standardSignatureOk(secret, { id: 'msg_1', timestamp: String(t), signature: std(key, 'msg_1', t) }, body, now))
+  assert.ok(standardSignatureOk(secret, { id: 'msg_1', timestamp: String(t), signature: `v1,AAAA ${std(key, 'msg_1', t)}` }, body, now))
+  assert.ok(!standardSignatureOk(secret, { id: 'msg_2', timestamp: String(t), signature: std(key, 'msg_1', t) }, body, now)) // another id
+  assert.ok(!standardSignatureOk(secret, { id: 'msg_1', timestamp: String(t - 400), signature: std(key, 'msg_1', t - 400) }, body, now))
+  assert.ok(!standardSignatureOk(secret, { id: 'msg_1', timestamp: String(t), signature: std(Buffer.alloc(24, 8), 'msg_1', t) }, body, now))
 })
 
 // --- the server ------------------------------------------------------------------
@@ -249,7 +268,7 @@ test('a department with no coordinator any more: the webhook stops, and says why
 
 test('what the coordinator did with a delivery: its turn, the tools, what it sent and spent, and what it says came of it', async () => {
   const lead = await session('trlead', 'coordinator')
-  await session('trworker', 'worker', 'trlead')
+  const worker = await session('trworker', 'worker', 'trlead')
   const other = await session('trother', 'coordinator')
   const hook = (await post('webhooks/create', { coordinator: 'trlead', name: 'Issues' })).result
   assert.equal((await github(hook.path, hook.secret, { action: 'opened', issue: { title: 'Broken link' } }, { event: 'issues' })).status, 202)
@@ -269,7 +288,7 @@ test('what the coordinator did with a delivery: its turn, the tools, what it sen
     ev('tool_end', { id: 't1', tool: 'mcp__pisha__download_attachment', ok: true, summary: 'saved', duration_ms: 40 }, 60),
     ev('tool_end', { id: 't2', tool: 'Bash', ok: false, summary: 'curl failed' }, 80),
   ] })
-  await lead.call('sendMessage', { chat_id: 'trworker', text: 'Fix the broken link in the footer' })
+  const task = (await lead.call('sendMessage', { chat_id: 'trworker', text: 'Fix the broken link in the footer' })).result
   await lead.call('observe', { events: [{ kind: 'tokens', ts: t0 + 90, model: 'claude-opus-5-5', input: 10, cache_read: 1000, cache_write: 50, output: 200, cause: 'message', msg: msg.message_id }] })
   await lead.call('observe', { events: [ev('text', { text: 'Handed the fix to trworker.' }, 100), ev('stop', {}, 200)] })
   const after = await waitFor(async () => { const x = await d(); return x.status === 'unreported' ? x : null }, 'its turn ended')
@@ -279,6 +298,15 @@ test('what the coordinator did with a delivery: its turn, the tools, what it sen
   assert.equal(after.trace.text, 'Handed the fix to trworker.')
   assert.deepEqual(after.trace.messages.map(m => [m.to, m.text]), [['trworker', 'Fix the broken link in the footer']])
   assert.deepEqual(after.tokens, { input: 10, cache_read: 1000, cache_write: 50, output: 200, calls: 1 })
+  // What it handed its worker is the delivery's: the report that came later,
+  // and what the worker spent on it.
+  assert.equal(after.trace.messages[0].task, true)
+  assert.equal(after.trace.messages[0].report, undefined)
+  await worker.call('observe', { events: [{ kind: 'tokens', ts: Date.now(), model: 'claude-sonnet-5-5', input: 5, cache_read: 500, cache_write: 0, output: 80, cause: 'message', msg: task.message_id }] })
+  await worker.call('sendMessage', { chat_id: 'trlead', text: 'Fixed the footer link; PR #53.', pisha_report: 'done' })
+  const reported = await waitFor(async () => { const x = await d(); return x.trace.messages[0].report ? x : null }, 'the worker\'s report')
+  assert.deepEqual([reported.trace.messages[0].report.state, reported.trace.messages[0].report.text], ['done', 'Fixed the footer link; PR #53.'])
+  assert.deepEqual(reported.worker_tokens, { input: 5, cache_read: 500, cache_write: 0, output: 80, calls: 1 })
   // Counted in Usage as a webhook's.
   assert.equal((await get('usage')).result.by.cause.find(r => r.cause === 'webhook')?.calls, 1)
 
@@ -293,4 +321,73 @@ test('what the coordinator did with a delivery: its turn, the tools, what it sen
   // (Its trace stays.)
   assert.equal(done.trace.tools.length, 2)
   assert.equal((await deliveries(`webhook=${hook.id}&status=failed`)).length, 1)
+})
+
+test('Stripe and Standard Webhooks: their secret pasted, the event from the body, and nothing old taken', async () => {
+  const lead = await session('stlead', 'coordinator')
+  assert.match((await post('webhooks/create', { coordinator: 'stlead', name: 'Stripe', preset: 'stripe' })).description, /paste the signing secret/)
+  const hook = (await post('webhooks/create', { coordinator: 'stlead', name: 'Stripe', preset: 'stripe', secret: 'whsec_stripeSecret12345' })).result
+  assert.equal(hook.secret, 'whsec_stripeSecret12345')
+  assert.equal(hook.secret_from_service, true)
+  const body = '{"id":"evt_9","type":"invoice.paid","data":{"object":{"amount_paid":1200}}}'
+  const sendStripe = at => fetch(`${URL_}${hook.path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'Stripe-Signature': `t=${at},v1=${createHmac('sha256', 'whsec_stripeSecret12345').update(`${at}.${body}`).digest('hex')}` }, body })
+  const t = Math.floor(Date.now() / 1000)
+  assert.equal((await sendStripe(t - 600)).status, 401)
+  assert.equal((await sendStripe(t)).status, 202)
+  const msg = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'the notice')
+  assert.match(msg.caption, /event invoice\.paid/)
+  // (Stripe's own id says it was seen before.)
+  assert.equal((await (await sendStripe(t)).json()).result.status, 'duplicate')
+  const log = await deliveries(`webhook=${hook.id}`)
+  assert.deepEqual(log.map(x => [x.status, x.delivery_key]), [['duplicate', 'evt_9'], ['delivered', 'evt_9'], ['bad_signature', null]])
+  assert.match((await get(`webhooks/delivery?id=${log[2].id}`)).result.reason, /more than five minutes ago/)
+  // A new secret is the one the service shows: pasted too.
+  assert.match((await post('webhooks/secret', { id: hook.id })).description, /paste the signing secret/)
+
+  const key = Buffer.alloc(32, 3)
+  const std = (await post('webhooks/create', { coordinator: 'stlead', name: 'Resend', preset: 'standard', secret: `whsec_${key.toString('base64')}` })).result
+  assert.match((await post('webhooks/create', { coordinator: 'stlead', name: 'x', preset: 'standard', secret: 'not base64 at all!!' })).description, /not a Standard Webhooks secret/)
+  const sbody = '{"type":"email.bounced","data":{"to":"a@example.com"}}'
+  const sendStd = (id, at) => fetch(`${URL_}${std.path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'webhook-id': id, 'webhook-timestamp': String(at), 'webhook-signature': `v1,${createHmac('sha256', key).update(`${id}.${at}.${sbody}`).digest('base64')}` }, body: sbody })
+  assert.equal((await sendStd('msg_1', t)).status, 202)
+  assert.equal((await sendStd('msg_2', t - 600)).status, 401)
+  const m2 = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'the notice')
+  assert.match(m2.caption, /event email\.bounced/)
+  const d = (await deliveries(`webhook=${std.id}&status=delivered`))[0]
+  assert.equal(d.delivery_key, 'msg_1')
+  assert.equal((await get(`webhooks/delivery?id=${d.id}`)).result.headers['webhook-id'], 'msg_1')
+  assert.ok(!('webhook-signature' in (await get(`webhooks/delivery?id=${d.id}`)).result.headers))
+})
+
+test('what to do by event, and a burst in one notice, answered for all at once', async () => {
+  const lead = await session('bulead', 'coordinator')
+  const hook = (await post('webhooks/create', { coordinator: 'bulead', name: 'Repo', prompt: 'Look at it.', prompts: { 'pull_request.opened': 'Review the pull request.', issues: 'Triage the issue.' }, batch_seconds: 1 })).result
+  assert.deepEqual(hook.prompts, { 'pull_request.opened': 'Review the pull request.', issues: 'Triage the issue.' })
+  assert.match((await post('webhooks/update', { id: hook.id, prompts: { 'no spaces allowed': 'x' } })).description, /is not an event name/)
+  assert.match((await post('webhooks/update', { id: hook.id, batch_seconds: 900 })).description, /batch_seconds/)
+  const bodies = [['pull_request', { action: 'opened', number: 1 }], ['issues', { action: 'opened', number: 2 }], ['push', { ref: 'refs/heads/main' }]]
+  const ids = []
+  for (const [event, b] of bodies) ids.push((await (await github(hook.path, hook.secret, b, { event })).json()).result.delivery)
+  // Nothing yet: they wait for the rest of the burst.
+  assert.deepEqual((await lead.messages()).filter(m => m.from.id === 'pisha:webhook'), [])
+  const msg = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'the burst', )
+  assert.match(msg.caption, /3 deliveries that came together/)
+  assert.match(msg.caption, new RegExp(`#${ids[0]} \\(pull_request\\.opened\\): Review the pull request\\.`))
+  assert.match(msg.caption, new RegExp(`#${ids[1]} \\(issues\\.opened\\): Triage the issue\\.`))
+  assert.match(msg.caption, new RegExp(`#${ids[2]} \\(push\\): Look at it\\.`))
+  const list = JSON.parse((await lead.download(msg.document.file_id)).toString('utf8'))
+  assert.deepEqual(list.map(x => [x.delivery, x.event, x.body.number ?? x.body.ref]), [[ids[0], 'pull_request.opened', 1], [ids[1], 'issues.opened', 2], [ids[2], 'push', 'refs/heads/main']])
+  assert.equal((await lead.messages()).filter(m => m.from.id === 'pisha:webhook').length, 0)
+  const one = (await get(`webhooks/delivery?id=${ids[1]}`)).result
+  assert.deepEqual([one.status, one.message_id, one.together], ['delivered', msg.message_id, [ids[0], ids[2]]])
+  // What came of all of them, in one call.
+  const r = await lead.call('webhookResult', { deliveries: ids, outcome: 'done', summary: 'Reviewed, triaged and noted the push.' })
+  assert.ok(r.ok, r.description)
+  assert.deepEqual(r.result.deliveries, ids)
+  for (const id of ids) assert.equal((await get(`webhooks/delivery?id=${id}`)).result.status, 'done')
+  // One alone, with its own words (no burst any more).
+  await post('webhooks/update', { id: hook.id, batch_seconds: 0 })
+  await github(hook.path, hook.secret, { action: 'closed' }, { event: 'issues' })
+  const single = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'one alone')
+  assert.match(single.caption, /What the user wants done with this webhook:\nTriage the issue\./)
 })

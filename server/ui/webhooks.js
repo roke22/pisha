@@ -19,7 +19,11 @@ const STATUS_TAG = {
   bad_signature: 'err', bad_json: 'warn', too_large: 'warn', disabled: 'warn', rate_limited: 'warn',
 }
 const STATUSES = Object.keys(STATUS_TAG)
-const PRESETS = ['github', 'gitlab', 'custom']
+const PRESETS = ['github', 'gitlab', 'stripe', 'standard', 'custom']
+const VERIFY = ['hmac-sha256', 'token', 'stripe', 'standard']
+// (Stripe and Standard Webhooks make the secret themselves: it is pasted.)
+const FROM_SERVICE = ['stripe', 'standard']
+const verifyOf = (preset, custom) => ({ github: 'hmac-sha256', gitlab: 'token', stripe: 'stripe', standard: 'standard' })[preset] ?? custom
 const WHEN = new Intl.DateTimeFormat(LOCALE, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: false })
 
 let hooks = null // the company's webhooks, or null before they arrive
@@ -84,7 +88,7 @@ function row(h) {
   const state_ = h.enabled ? `<span class="dot ok" aria-hidden="true"></span>${esc(T.whOn)}` : `<span class="dot warn" aria-hidden="true"></span>${esc(h.disabled_reason === 'no_coordinator' ? T.whOffNoCoord : T.whOff)}`
   return `<li class="wh-row" data-wh="${h.id}">
       <div class="wh-main"><b class="wh-name">${esc(h.name)}</b><span class="tag">${esc(T.whPreset[h.preset] ?? h.preset)}</span><span class="wh-state">${state_}</span></div>
-      <div class="wh-meta">${last ? `${statusTag(last.status)}<span>${esc(eventOf(last))}</span><span class="wh-when">${esc(ago(last.received_at))}</span>` : `<span>${esc(T.whNothingYet)}</span>`}${h.events ? `<span class="wh-events" title="${esc(h.events.join(', '))}">${esc(T.whOnlyEvents(h.events.length))}</span>` : ''}</div>
+      <div class="wh-meta">${h.batch_seconds ? `<span class="tag">${esc(T.whBatchTag(h.batch_seconds))}</span>` : ''}${last ? `${statusTag(last.status)}<span>${esc(eventOf(last))}</span><span class="wh-when">${esc(ago(last.received_at))}</span>` : `<span>${esc(T.whNothingYet)}</span>`}${h.events ? `<span class="wh-events" title="${esc(h.events.join(', '))}">${esc(T.whOnlyEvents(h.events.length))}</span>` : ''}</div>
       ${can('manager') ? `<button type="button" class="icon-btn wh-more" data-wh-menu="${h.id}" aria-label="${esc(T.whActions(h.name))}" title="${esc(T.whActions(h.name))}">⋯</button>` : ''}
     </li>`
 }
@@ -125,6 +129,7 @@ async function hookAction(a, h) {
     return
   }
   if (a === 'toggle') return postJson('/api/webhooks/update', { id: h.id, enabled: !h.enabled }).then(() => loadHooks(true)).catch(err => alertBox(err.message))
+  if (a === 'secret' && h.secret_from_service) return pasteSecretDialog(h)
   if (a === 'secret') {
     return confirmDialog({
       title: T.whNewSecretTitle(h.name), text: esc(T.whNewSecretText), confirm: T.whNewSecret, danger: true,
@@ -149,7 +154,7 @@ function hookDialog({ hook = null, coordinator = hook?.coordinator } = {}) {
         <label class="field"><span>${esc(T.whName)}</span><input name="name" maxlength="80" required value="${v('name')}" placeholder="${esc(T.whNamePh)}"></label>
         ${editing ? '' : `<div class="field"><span>${esc(T.whService)}</span><span class="seg" role="group" aria-label="${esc(T.whService)}">${PRESETS.map(p => `<button type="button" data-preset="${p}" aria-pressed="${p === preset}" class="${p === preset ? 'on' : ''}">${esc(T.whPreset[p])}</button>`).join('')}</span></div>`}
         <div class="wh-custom" ${preset === 'custom' ? '' : 'hidden'}>
-          <label class="field"><span>${esc(T.whVerify)}</span><select name="verify">${['hmac-sha256', 'token'].map(x => `<option value="${x}"${(hook?.verify ?? 'hmac-sha256') === x ? ' selected' : ''}>${esc(T.whVerifyName[x])}</option>`).join('')}</select></label>
+          <label class="field"><span>${esc(T.whVerify)}</span><select name="verify" ${editing ? 'disabled' : ''}>${VERIFY.map(x => `<option value="${x}"${(hook?.verify ?? 'hmac-sha256') === x ? ' selected' : ''}>${esc(T.whVerifyName[x])}</option>`).join('')}</select></label>
           <div class="row2">
             <label class="field"><span>${esc(T.whSigHeader)}</span><input name="signature_header" value="${v('signature_header')}" placeholder="X-Signature"></label>
             <label class="field"><span>${esc(T.whEventHeader)}</span><input name="event_header" value="${v('event_header')}" placeholder="X-Event"></label>
@@ -158,23 +163,47 @@ function hookDialog({ hook = null, coordinator = hook?.coordinator } = {}) {
         </div>
         <label class="field"><span>${esc(T.whEvents)}</span><input name="events" value="${esc(hook?.events?.join(', ') ?? '')}" placeholder="push, pull_request.opened, issues"><small class="dim-note">${esc(T.whEventsHint)}</small></label>
         <label class="field"><span>${esc(T.whPrompt)}</span><textarea name="prompt" rows="4" maxlength="4000" placeholder="${esc(T.whPromptPh)}">${v('prompt')}</textarea><small class="dim-note">${esc(T.whPromptHint)}</small></label>
-        ${editing ? '' : `<label class="field"><span>${esc(T.whOwnSecret)}</span><input name="secret" autocomplete="off" spellcheck="false" placeholder="${esc(T.whOwnSecretPh)}"></label>`}
+        <div class="field wh-by-event"><span>${esc(T.whByEvent)}</span><small class="dim-note">${esc(T.whByEventHint)}</small>
+          <div class="wh-pe-list" data-pe-list>${Object.entries(hook?.prompts ?? {}).map(([e, t]) => peRow(e, t)).join('')}</div>
+          <button type="button" class="btn quiet wh-pe-add" data-pe-add>${esc(T.whByEventAdd)}</button></div>
+        <label class="field wh-batch"><span>${esc(T.whBatch)}</span><input type="number" name="batch_seconds" min="0" max="300" step="1" inputmode="numeric" value="${esc(hook?.batch_seconds ?? 0)}"><small class="dim-note">${esc(T.whBatchHint)}</small></label>
+        ${editing ? '' : `<label class="field"><span data-secret-label>${esc(T.whOwnSecret)}</span><input name="secret" autocomplete="off" spellcheck="false" placeholder="${esc(T.whOwnSecretPh)}"><small class="dim-note" data-secret-hint hidden>${esc(T.whServiceSecretHint)}</small></label>`}
         <div class="err"></div>
         <div class="actions wh-actions"><button type="button" class="btn" data-cancel>${esc(T.cancel)}</button><button type="submit" class="btn primary">${esc(editing ? T.save : T.whCreate)}</button></div>
       </form>`, { wide: true })
   const form = el.querySelector('form')
   form.querySelector('[name=name]').focus()
+  // (The secret: one's own or made here, or the one the service made.)
+  const secretKind = () => {
+    if (editing) return
+    const fromService = FROM_SERVICE.includes(verifyOf(preset, form.querySelector('[name=verify]').value))
+    el.querySelector('[data-secret-label]').textContent = fromService ? T.whServiceSecret : T.whOwnSecret
+    form.querySelector('[name=secret]').placeholder = fromService ? 'whsec_…' : T.whOwnSecretPh
+    el.querySelector('[data-secret-hint]').hidden = !fromService
+  }
   el.querySelectorAll('[data-preset]').forEach(b => b.addEventListener('click', () => {
     preset = b.dataset.preset
     el.querySelectorAll('[data-preset]').forEach(x => { x.classList.toggle('on', x === b); x.setAttribute('aria-pressed', String(x === b)) })
     el.querySelector('.wh-custom').hidden = preset !== 'custom'
+    secretKind()
   }))
+  form.querySelector('[name=verify]').addEventListener('change', secretKind)
+  el.querySelector('[data-pe-add]').addEventListener('click', () => {
+    el.querySelector('[data-pe-list]').insertAdjacentHTML('beforeend', peRow('', ''))
+    el.querySelector('[data-pe-list] .wh-pe-row:last-child [name=pe-event]').focus()
+  })
+  el.querySelector('[data-pe-list]').addEventListener('click', e => { e.target.closest('[data-pe-del]')?.closest('.wh-pe-row')?.remove() })
   form.addEventListener('submit', async e => {
     e.preventDefault()
     const f = Object.fromEntries(new FormData(form))
     const events = String(f.events ?? '').split(/[\s,]+/).filter(Boolean)
-    const body = { name: f.name, events: events.length ? events : null, prompt: f.prompt ?? '' }
-    if (preset === 'custom') Object.assign(body, { verify: f.verify, signature_header: f.signature_header, event_header: f.event_header, delivery_header: f.delivery_header })
+    const prompts = {}
+    for (const r of el.querySelectorAll('.wh-pe-row')) {
+      const ev = r.querySelector('[name=pe-event]').value.trim(), text = r.querySelector('[name=pe-text]').value.trim()
+      if (ev || text) prompts[ev] = text
+    }
+    const body = { name: f.name, events: events.length ? events : null, prompt: f.prompt ?? '', prompts: Object.keys(prompts).length ? prompts : null, batch_seconds: Number(f.batch_seconds || 0) }
+    if (preset === 'custom') Object.assign(body, { ...(editing ? {} : { verify: f.verify }), signature_header: f.signature_header, event_header: f.event_header, delivery_header: f.delivery_header })
     const btn = form.querySelector('[type=submit]')
     btn.disabled = true
     try {
@@ -194,6 +223,30 @@ function hookDialog({ hook = null, coordinator = hook?.coordinator } = {}) {
   })
 }
 
+// What to do with one event: its name and the words for it.
+const peRow = (event, text) => `<div class="wh-pe-row">
+    <input name="pe-event" value="${esc(event)}" placeholder="pull_request.opened" aria-label="${esc(T.whEvent)}" spellcheck="false">
+    <textarea name="pe-text" rows="2" maxlength="4000" aria-label="${esc(T.whPrompt)}" placeholder="${esc(T.whPromptPh)}">${esc(text)}</textarea>
+    <button type="button" class="btn quiet" data-pe-del aria-label="${esc(T.whRemove)}" title="${esc(T.whRemove)}">✕</button>
+  </div>`
+
+// A new secret the service made: pasted here (one generated here would never match).
+function pasteSecretDialog(h) {
+  const { el, close } = dialog(`<h3>${esc(T.whNewSecretTitle(h.name))}</h3>
+      <form class="wh-form" novalidate>
+        <p class="dim-note">${esc(T.whPasteSecretText)}</p>
+        <label class="field"><span>${esc(T.whServiceSecret)}</span><input name="secret" autocomplete="off" spellcheck="false" placeholder="whsec_…" required></label>
+        <div class="err"></div>
+        <div class="actions wh-actions"><button type="button" class="btn" data-cancel>${esc(T.cancel)}</button><button type="submit" class="btn primary">${esc(T.save)}</button></div>
+      </form>`)
+  const form = el.querySelector('form')
+  form.querySelector('[name=secret]').focus()
+  form.addEventListener('submit', async e => {
+    e.preventDefault()
+    try { await postJson('/api/webhooks/secret', { id: h.id, secret: form.querySelector('[name=secret]').value.trim() }); close() } catch (err) { el.querySelector('.err').textContent = err.message }
+  })
+}
+
 // Where to send it and with what secret: shown once, when made or renewed.
 function secretDialog(h, { secret, made = false, renewed = false }) {
   const copyRow = (text, id) => `<div class="cmdrow"><pre class="cmd" id="${id}">${esc(text)}</pre><button type="button" class="btn" data-copy-from="${id}">${esc(T.copy)}</button></div>`
@@ -201,7 +254,7 @@ function secretDialog(h, { secret, made = false, renewed = false }) {
   const { el } = dialog(`<h3>${esc(made ? T.whMadeTitle(h.name) : renewed ? T.whRenewedTitle(h.name) : T.whUrlTitle(h.name))}</h3>
       <div class="wh-secret">
         <p class="wh-label">${esc(T.whUrl)}</p>${copyRow(h.url ?? urlOf(h), 'whUrl')}
-        ${secret ? `<p class="wh-label">${esc(h.verify === 'token' ? T.whToken : T.whSecret)}</p>${copyRow(secret, 'whSecretVal')}<p class="wh-note">${esc(T.whSecretOnce)}</p>` : `<p class="wh-note">${esc(T.whSecretHidden)}</p>`}
+        ${h.secret_from_service ? `<p class="dim-note">${esc(T.whSecretFromService)}</p>` : secret ? `<p class="wh-label">${esc(h.verify === 'token' ? T.whToken : T.whSecret)}</p>${copyRow(secret, 'whSecretVal')}<p class="wh-note">${esc(T.whSecretOnce)}</p>` : `<p class="wh-note">${esc(T.whSecretHidden)}</p>`}
         <ol class="wh-steps">${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
         <p class="dim-note">${esc(T.whPublicNote)}</p>
       </div>
@@ -332,10 +385,18 @@ function turnHtml(d) {
     ? `<p class="wh-report"><span class="tag ${STATUS_TAG[d.outcome]}">${esc(T.whStatus[d.outcome])}</span>${d.summary ? ` ${esc(d.summary)}` : ''}<small>${esc(ago(d.reported_at))}</small></p>`
     : `<p class="dim-note">${esc(d.turn_started_at ? T.whNoReport : T.whNotYet)}</p>`
   const tools = t?.tools?.length ? `<details class="wh-trace-part"><summary>${esc(T.whTools(t.tools_total ?? t.tools.length))}</summary><ol class="wh-tools">${t.tools.map(x => `<li class="${x.ok ? '' : 'bad'}"><code>${esc(x.tool)}</code> <span>${esc(x.summary)}</span></li>`).join('')}</ol></details>` : ''
-  const msgs = t?.messages?.length ? `<details class="wh-trace-part"><summary>${esc(T.whSent(t.messages.length))}</summary><ul class="wh-msgs">${t.messages.map(m => `<li><b>${esc(T.whSentTo(m.to))}</b> ${esc(m.text)}</li>`).join('')}</ul></details>` : ''
+  const REPORT_TAG = { done: 'ok', blocked: 'err', failed: 'err', question: 'warn' }
+  const reportOf = m => (m.report
+    ? `<div class="wh-wreport"><span class="tag ${REPORT_TAG[m.report.state] ?? ''}">${esc(T.reportWord?.[m.report.state] ?? m.report.state)}</span> ${esc(m.report.text)}</div>`
+    : m.task ? `<div class="wh-wreport dim-note">${esc(T.whNoWorkerReport)}</div>` : '')
+  const tasks = (t?.messages ?? []).filter(m => m.task).length
+  const msgs = t?.messages?.length ? `<details class="wh-trace-part"${tasks ? ' open' : ''}><summary>${esc(T.whSent(t.messages.length))}</summary><ul class="wh-msgs">${t.messages.map(m => `<li><b>${esc(T.whSentTo(m.to))}</b> ${esc(m.text)}${reportOf(m)}</li>`).join('')}</ul></details>` : ''
   const said = t?.text ? `<details class="wh-trace-part"><summary>${esc(T.whLastWords)}</summary><p class="wh-said">${esc(t.text)}</p></details>` : ''
-  const cost = k ? `<span>${esc(T.whTokens(FULL.format(k.input + k.cache_read + k.cache_write + k.output), k.calls))}</span>` : ''
-  return `<section class="wh-turn"><p class="wh-label">${esc(T.whWhatItDid)}</p>${report}
+  const all = x => x.input + x.cache_read + x.cache_write + x.output
+  const w = d.worker_tokens
+  const cost = [k ? `<span>${esc(T.whTokens(FULL.format(all(k)), k.calls))}</span>` : '', w ? `<span>${esc(T.whWorkerTokens(FULL.format(all(w)), w.calls))}</span>` : ''].join('')
+  const together = d.together?.length ? `<p class="dim-note">${esc(T.whTogether(d.together.map(n => `#${n}`).join(', ')))}</p>` : ''
+  return `<section class="wh-turn"><p class="wh-label">${esc(T.whWhatItDid)}</p>${report}${together}
       ${took || cost ? `<p class="wh-turn-meta">${took ? `<span>${esc(took)}</span>` : ''}${cost}</p>` : ''}
       ${tools}${msgs}${said}
       ${d.turn_ended_at && !t?.tools?.length && !t?.text ? `<p class="dim-note">${esc(T.whNoTrace)}</p>` : ''}</section>`

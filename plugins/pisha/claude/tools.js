@@ -215,10 +215,11 @@ export const TOOLS = [
       type: 'object',
       properties: {
         delivery: { type: 'integer', description: 'The delivery\'s number, from the notice ("delivery #N").' },
+        deliveries: { type: 'array', items: { type: 'integer' }, description: 'Instead of delivery: several numbers that share this outcome (those of a burst that came together).' },
         outcome: { type: 'string', enum: ['done', 'ignored', 'failed'] },
         summary: { type: 'string', description: 'What was done with it, or why nothing was, in a few lines.' },
       },
-      required: ['delivery', 'outcome', 'summary'],
+      required: ['outcome', 'summary'],
     },
   },
   {
@@ -525,8 +526,10 @@ export async function callTool(name, args) {
         : `It is in the user's inbox (#${id}).${planHint()}`
     }
     case 'webhook_result': {
-      const r = await call('webhookResult', { delivery: Number(args.delivery), outcome: String(args.outcome ?? ''), summary: maskOutgoing(String(args.summary ?? '')).text })
-      return `Delivery #${r.delivery} written down as ${r.outcome}: the user sees it in the webhook's log.`
+      const several = Array.isArray(args.deliveries) && args.deliveries.length
+      const r = await call('webhookResult', { ...(several ? { deliveries: args.deliveries.map(Number) } : { delivery: Number(args.delivery) }), outcome: String(args.outcome ?? ''), summary: maskOutgoing(String(args.summary ?? '')).text })
+      const which = r.deliveries?.length > 1 ? `Deliveries ${r.deliveries.map(n => `#${n}`).join(', ')}` : `Delivery #${r.delivery}`
+      return `${which} written down as ${r.outcome}: the user sees it in the webhook's log.`
     }
     case 'update_plan': {
       const clean = v => (v == null || v === '' ? undefined : maskOutgoing(String(v)).text)

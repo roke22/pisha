@@ -59,6 +59,16 @@
 .wh-body { max-height: 46vh; margin: 0; overflow: auto; white-space: pre; }
 .wh-detail + .err { margin-top: 8px; }
 
+/* What to do by event, and gathering bursts, in the dialog. */
+.wh-form .seg { flex-wrap: wrap; }
+.wh-by-event > small { display: block; margin: 2px 0 8px; }
+.wh-pe-list { display: flex; flex-direction: column; gap: 8px; }
+.wh-pe-row { display: grid; grid-template-columns: minmax(120px, 200px) minmax(0, 1fr) auto; gap: 8px; align-items: start; }
+.wh-pe-row input, .wh-pe-row textarea { width: 100%; }
+.wh-pe-row input { font-family: var(--mono); font-size: 12.5px; }
+.wh-pe-add { align-self: flex-start; margin-top: 6px; padding-left: 0; }
+.wh-batch input { max-width: 120px; }
+
 /* What the coordinator did with it. */
 .wh-turn { margin: 0 0 14px; padding: 12px 14px; border-radius: var(--r-md); background: var(--raised); }
 .wh-turn .wh-label { margin-top: 0; }
@@ -76,8 +86,13 @@
 .wh-tools li.bad code { color: var(--err); }
 .wh-said { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); max-height: 240px; overflow: auto; }
 
+.wh-wreport { margin: 3px 0 6px; overflow-wrap: anywhere; }
+.wh-wreport .tag { margin-right: 4px; }
+
 @media (max-width: 900px) {
   #webhooks { padding: 12px; }
+  .wh-pe-row { grid-template-columns: minmax(0, 1fr) auto; }
+  .wh-pe-row textarea { grid-column: 1 / -1; grid-row: 2; }
   /* The log as a list: each entry two lines, nothing cut off. */
   .wh-table { min-width: 0; }
   .wh-table thead { display: none; }
