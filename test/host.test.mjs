@@ -12,10 +12,11 @@ import { tmpdir, homedir, userInfo } from 'node:os'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER_TOKEN = 'test-server-token-host-0123456789'
-const PORT = 19000 + Math.floor(Math.random() * 2000)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const VERSION = JSON.parse(readFileSync(new URL('../package.json', import.meta.url), 'utf8')).version
 const SOCKET = `pisha-test-${process.pid}`
@@ -33,12 +34,21 @@ async function waitFor(fn, { timeout = 10000, interval = 50, what = 'condition' 
   }
 }
 
-async function dash(path, body) {
-  const res = await fetch(`${URL_}/api/${path}`, {
-    method: body ? 'POST' : 'GET',
-    headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVER_TOKEN}` },
-    body: body ? JSON.stringify(body) : undefined,
-  })
+// (A connection kept from the last request may have been closed by the server
+// meanwhile, idle past its keep-alive, while a test held this process up with
+// execFileSync: that request never reached it, so it is sent again, once.)
+async function dash(path, body, again = true) {
+  let res
+  try {
+    res = await fetch(`${URL_}/api/${path}`, {
+      method: body ? 'POST' : 'GET',
+      headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${SERVER_TOKEN}` },
+      body: body ? JSON.stringify(body) : undefined,
+    })
+  } catch (err) {
+    if (again && err.cause?.code === 'UND_ERR_SOCKET' && /other side closed/.test(err.cause.message)) return dash(path, body, false)
+    throw err
+  }
   return res.json()
 }
 
@@ -1391,7 +1401,7 @@ test('pisha-host keeps its secret out of the WebSocket headers, and stops only w
 test('the server keeps its key: made once, the same after a restart, and never replaced by itself', async () => {
   const { randomBytes } = await import('node:crypto')
   const dir = tempDir('pisha-server-key-')
-  const port = 21500 + Math.floor(Math.random() * 500)
+  const port = await freePort()
   const start = () => spawn(process.execPath, [join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, PISHA_SERVER_TOKEN: SERVER_TOKEN }, stdio: ['ignore', 'ignore', 'pipe'] })
   const up = async () => {
     const p = start()

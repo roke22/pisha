@@ -15,10 +15,11 @@ import { randomBytes } from 'node:crypto'
 import { serverNoticeIsGood } from '../plugins/pisha/signing.js'
 import { execFileSync } from 'node:child_process'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ADMIN = 'companies-admin-token-0123456789'
-const PORT = 24000 + Math.floor(Math.random() * 2000)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const dataDir = tempDir('pisha-companies-')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -287,7 +288,7 @@ test('a company at its database limit takes nothing more from its sessions, and 
 })
 
 test('on a disk about to fill up, sessions can add nothing, and can still be deleted', async () => {
-  const port = PORT + 1
+  const port = await freePort()
   const dir = tempDir('pisha-companies-disk-')
   const low = spawn(process.execPath, [join(ROOT, 'server/server.js')], {
     env: { ...process.env, PORT: String(port), DATA_DIR: dir, PISHA_SERVER_TOKEN: ADMIN, PISHA_MIN_FREE_MB: '999999999999' },
@@ -499,7 +500,7 @@ test('a server notice names its company: it can\'t be replayed in another', asyn
 
 test('a server with data keeps it as the first company, with its machines and sessions, and a copy from before', async () => {
   const dir = tempDir('pisha-companies-up-')
-  const port = PORT + 3000
+  const port = await freePort()
   const start = async () => {
     const proc = spawn(process.execPath, [join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, PISHA_SERVER_TOKEN: ADMIN }, stdio: 'ignore' })
     await waitFor(async () => { try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok } catch { return false } }, { what: 'server' })
@@ -548,7 +549,7 @@ test('limits are per company, can be changed, and bad ones are refused', async (
 
 test('after a restart every company is back, with its sessions, machines and limits', async () => {
   const dir = tempDir('pisha-companies-restart-')
-  const port = PORT + 3100
+  const port = await freePort()
   const start = async () => {
     const proc = spawn(process.execPath, [join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, PISHA_SERVER_TOKEN: ADMIN }, stdio: 'ignore' })
     await waitFor(async () => { try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok } catch { return false } }, { what: 'server' })
@@ -650,7 +651,7 @@ test('exporting a company: its database and attachments, in a file anyone can op
 
 test('deleting a company: stopped at once, back if asked for, and gone when its time is up', async () => {
   const dir = tempDir('pisha-companies-del-')
-  const port = PORT + 3200
+  const port = await freePort()
   const start = async grace => {
     const proc = spawn(process.execPath, [join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: dir, PISHA_SERVER_TOKEN: ADMIN, PISHA_COMPANY_GRACE_MS: String(grace) }, stdio: 'ignore' })
     await waitFor(async () => { try { return (await fetch(`http://127.0.0.1:${port}/health`)).ok } catch { return false } }, { what: 'server' })

@@ -16,10 +16,11 @@ import { createServer as createHttpServer } from 'node:http'
 import { createServer as createHttpsServer } from 'node:https'
 import { connect as connectSocket } from 'node:net'
 import { tempDir, removeLater } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const SERVER_TOKEN = 'test-server-token-0123456789'
-const PORT = 17000 + Math.floor(Math.random() * 2000)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 
 const sleep = ms => new Promise(r => setTimeout(r, ms))

@@ -13,6 +13,7 @@ import { existsSync, readdirSync, readFileSync, mkdirSync } from 'node:fs'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -37,7 +38,7 @@ test('the npm package starts on its own, keeps its data in ~/.pisha, and hands o
   const home = tempDir('pisha-home-')
   const cwd = tempDir('pisha-cwd-')
   mkdirSync(cwd, { recursive: true })
-  const port = 24000 + Math.floor(Math.random() * 2000)
+  const port = await freePort()
   const env = { ...process.env, HOME: home, PORT: String(port) }
   delete env.DATA_DIR
   const proc = spawn(process.execPath, [join(pkg, 'server.js')], { cwd, env, stdio: ['ignore', 'pipe', 'pipe'] })

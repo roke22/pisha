@@ -11,6 +11,7 @@ import { spawn } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 import { writeFileSync, appendFileSync, mkdirSync } from 'node:fs'
 import { claudeTokens, codexTokens, grokTokens, promptCause, createObserver } from '../plugins/pisha/observe.js'
 
@@ -117,7 +118,7 @@ test('the observer: each response once, with what started its turn, a subagent t
 // --- the server ------------------------------------------------------------------
 
 const TOKEN = 'test-server-token-usage-0123456789'
-const PORT = 28000 + Math.floor(Math.random() * 400) // (a range no other test file uses: they run at once)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 let server
