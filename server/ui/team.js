@@ -7,6 +7,7 @@ import { sortedSessions, status, agentMark } from './content.js'
 import { setHtml } from './nav.js'
 import { currentRoute } from './router.js'
 import { permissionsSection } from './permissions.js'
+import { webhooksSection } from './webhooks.js'
 
 // One team: what it is for, what its workers last reported, who is in it and
 // where each runs, the teams it is linked with, and saving it as a template.
@@ -91,6 +92,7 @@ export function renderTeam() {
           <header class="tq-h"><h2>${esc(T.tqReports)}</h2><span class="tq-sub">${esc(T.tqReportsHint)}</span></header>
           ${repHtml}
         </section>
+        ${webhooksSection(coord.name)}
       </div>
       <aside class="tq-aside" aria-label="${esc(T.tqTeam)}">
         <section><h3 class="tq-label">${esc(T.tqWho)}</h3><ul class="tq-members">${who(coord)}${workers.map(w => who(w)).join('')}</ul>${workers.length ? '' : `<p class="tq-quiet">${esc(T.noWorkers)}</p>`}</section>

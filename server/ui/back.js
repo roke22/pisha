@@ -60,6 +60,7 @@ export function parentOf(r) {
     case 'addmachine': return '#/hosts'
     case 'boards': return null
     case 'usage': return null
+    case 'webhooks': return r.team ? `#/q/${enc(r.team)}` : null
     case 'board': return r.task ? `#/b/${r.board}` : '#/boards'
     case 'terminal': return `#/h/${enc(r.host)}`
     case 'session': {
@@ -92,6 +93,7 @@ export function placeName(hash) {
     case 'addmachine': return T.addTitle
     case 'boards': return T.boards
     case 'usage': return T.usage
+    case 'webhooks': return r.team ? T.whLogOf(team(r.team)) : T.whTitle
     case 'board': return state.boards.find(b => b.id === r.board)?.name ?? T.boards
     default: return T.leads
   }

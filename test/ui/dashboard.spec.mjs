@@ -5,6 +5,7 @@
 import { test as base, expect } from '@playwright/test'
 import { OWNER, SERVER_TOKEN, startMachine, startServer, startSession } from './harness.mjs'
 import { totpCode, totpStep } from '../../server/accounts/totp.js'
+import { createHmac } from 'node:crypto'
 
 // Any error in the page fails the test, a script the Content-Security-Policy
 // blocked included. (A wrong token is answered with a 401, which the browser
@@ -1008,4 +1009,48 @@ test('usage: what the agents spent, in tokens, over a period and by what started
   await expect(box.locator('.u-tile').first()).toContainText('13.5k')
   await box.locator('[data-ufilter="team"]').selectOption({ index: 0 })
   await expect(page.locator('[data-uexport]')).toBeVisible()
+})
+
+test('webhooks: made on a team\'s page, its address and secret shown once, and what comes in is in the log as it came', async ({ page }) => {
+  await signIn(page, '#/q/coord')
+  const sec = page.locator('#whSection')
+  await expect(sec).toContainText('No webhooks yet')
+  await sec.locator('[data-wh-new]').click()
+  const d = page.locator('.modal')
+  await d.locator('[name=name]').fill('GitHub web')
+  await d.locator('[name=events]').fill('push, issues')
+  await d.locator('[name=prompt]').fill('Tell me about each push')
+  await d.locator('[type=submit]').click()
+  await expect(page.locator('.modal h3')).toContainText('GitHub web is ready')
+  const url = await page.locator('#whUrl').textContent()
+  const secret = await page.locator('#whSecretVal').textContent()
+  expect(url).toMatch(/\/hooks\/[A-Za-z0-9_-]{32}$/)
+  await page.locator('.modal [data-cancel]').click()
+  await expect(sec.locator('.wh-row')).toContainText('GitHub web')
+  await expect(sec.locator('.wh-row')).toContainText('Only 2 events')
+  // A push from GitHub, signed: on the team's page as soon as it is given.
+  const body = '{"ref":"refs/heads/main"}'
+  const send = sig => fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GitHub-Event': 'push', 'X-Hub-Signature-256': sig }, body })
+  expect((await send(`sha256=${createHmac('sha256', secret).update(body).digest('hex')}`)).status).toBe(202)
+  await expect(sec.locator('.wh-row [data-whstatus]')).toHaveText('Delivered')
+  // The log: what arrives shows by itself, and each entry opens with what came.
+  await sec.locator('a[href="#/webhooks/q/coord"]').click()
+  const log = page.locator('#webhooks')
+  await expect(log.locator('tr[data-whd]')).toHaveCount(1)
+  expect((await send('sha256=00')).status).toBe(401)
+  await expect(log.locator('tr[data-whd]')).toHaveCount(2)
+  await expect(log.locator('tr[data-whd]').first()).toContainText('Bad signature')
+  await log.locator('tr[data-whd]', { hasText: 'Delivered' }).click()
+  await expect(page.locator('.modal .wh-body')).toContainText('"ref": "refs/heads/main"')
+  await page.locator('.modal [data-redeliver]').click()
+  await expect(page.locator('.modal')).toContainText('Given again as delivery')
+  await page.locator('.modal [data-ok]').click()
+  await expect(log.locator('tr[data-whd]')).toHaveCount(3)
+  // By state.
+  await log.locator('[data-whfilter=status]').selectOption('bad_signature')
+  await expect(log.locator('tr[data-whd]')).toHaveCount(1)
+  // A refusal kept nothing: nothing to give again.
+  await log.locator('tr[data-whd]').click()
+  await expect(page.locator('.modal')).toContainText('Nothing of it was kept')
+  await expect(page.locator('.modal [data-redeliver]')).toHaveCount(0)
 })

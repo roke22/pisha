@@ -12,6 +12,7 @@ import { createHash, createHmac } from 'node:crypto'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 import { signatureOk } from '../server/webhooks/index.js'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
@@ -34,7 +35,7 @@ test('signatures: HMAC-SHA256 over the bytes as they came, or a token', () => {
 // --- the server ------------------------------------------------------------------
 
 const TOKEN = 'test-server-token-webhooks-0123456789'
-const PORT = 28500 + Math.floor(Math.random() * 400) // (a range no other test file uses: they run at once)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const MAX_BYTES = 64 * 1024
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -191,8 +192,25 @@ test('a signed webhook reaches its coordinator as it came, attached, with the us
   assert.equal((await github(hook.path, hook.secret, { action: 'opened' }, { event: 'pull_request' })).status, 401)
   assert.equal((await github(hook.path, fresh, { action: 'opened' }, { event: 'pull_request' })).status, 202)
 
+  // From the dashboard: a test, whatever events it takes; and one kept, given again.
+  const tried = await post('webhooks/test', { id: hook.id })
+  assert.ok(tried.ok, tried.description)
+  assert.deepEqual([tried.result.status, tried.result.event, tried.result.webhook_name], ['delivered', 'pisha_test', 'GitHub — web'])
+  const test1 = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook' && /pisha_test/.test(m.caption)), 'the test')
+  assert.match(test1.caption, /event pisha_test.*\(test sent from the dashboard\)/)
+  const again2 = await post('webhooks/redeliver', { id: delivery })
+  assert.ok(again2.ok, again2.description)
+  assert.notEqual(again2.result.id, delivery)
+  const re = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook' && /delivered again/.test(m.caption)), 'the delivery again')
+  assert.match(re.caption, new RegExp(`\\(delivered again from #${delivery}\\)`))
+  assert.deepEqual(await lead.download(re.document.file_id), raw)
+  // (What was refused kept nothing to give again.)
+  const refused = (await deliveries(`webhook=${hook.id}&status=bad_signature`))[0]
+  assert.match((await post('webhooks/redeliver', { id: refused.id })).description, /nothing of that delivery was kept/)
+
   // Turned off.
   assert.ok((await post('webhooks/update', { id: hook.id, enabled: false })).ok)
+  assert.match((await post('webhooks/test', { id: hook.id })).description, /turned off/)
   assert.equal((await github(hook.path, fresh, { action: 'opened' }, { event: 'pull_request' })).status, 410)
   assert.equal((await deliveries(`webhook=${hook.id}&status=disabled`)).length, 1)
 })

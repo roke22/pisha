@@ -14,6 +14,7 @@ import { renderBack } from './back.js'
 import { voiceButton } from './voice.js'
 import { boardsHead, boardsTopClick } from './boards.js'
 import { usageHead } from './usage.js'
+import { webhooksHead } from './webhooks.js'
 
 // The terminal a session view shows (null: its chat).
 // (An observer has no terminals: its chat instead.)
@@ -67,6 +68,11 @@ function renderHead() {
   if (r.view === 'usage') {
     const h = usageHead()
     setHtml($('topTitle'), h.title); setHtml($('topTabs'), h.tabs); setHtml($('topRight'), h.right)
+    return
+  }
+  if (r.view === 'webhooks') {
+    // (Its subtitle, how many are shown, is the log's own: see renderWebhooks.)
+    setHtml($('topTitle'), webhooksHead().title); setHtml($('topRight'), '')
     return
   }
   if (r.view === 'boards' || r.view === 'board') {
