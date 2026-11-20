@@ -76,13 +76,14 @@ function chatAskHint(s, lastText) {
 }
 
 // A coordinator's first order: something typed in its terminal (by the user,
-// or their answer from the inbox) or a request from a linked coordinator. Its
+// or their answer from the inbox), a request from a linked coordinator, or
+// what the board or a webhook the user set up brings. Its
 // workers' messages and the server's notices are not one.
 const CHANNEL_BLOCK_RE = /<channel\b[^>]*>[\s\S]*?<\/channel>/g
 export function orderSeen(s, prompt) {
   if (s.role !== 'coordinator' || s.ordered) return
   const text = String(prompt ?? '')
-  if (text.replace(CHANNEL_BLOCK_RE, '').trim() || /<channel\b[^>]*\b(?:linked="true"|kind="pisha_board")/.test(text)) s.ordered = true
+  if (text.replace(CHANNEL_BLOCK_RE, '').trim() || /<channel\b[^>]*\b(?:linked="true"|kind="pisha_board"|kind="pisha_webhook")/.test(text)) s.ordered = true
 }
 
 // The user's answer from the inbox is typed in as a prompt ("Inbox #12 (…), the

@@ -3,7 +3,7 @@ import { statSync, createReadStream } from 'node:fs'
 import {
   guardRequest, sendJson, clientIp, readParams, bearer, own, sendError, VERSION, UI_FILE, VENDOR_FILES, APP_FILES,
   MAX_JSON_BODY, cachedFile, pageHeaders, ApiError, allowServerWide, ipKey, sha256, refuseSocket, logError,
-  ALLOW_TOKEN_API, atLeast, pathTooLong, cleanText, trimSlashes,
+  ALLOW_TOKEN_API, atLeast, pathTooLong, cleanText, trimSlashes, countedServerWide,
 } from './platform/index.js'
 import {
   INSTALLERS, installer, hostScript, hostSignature, checkEnrollRate, enrollmentKey, offeredCredential,
@@ -226,6 +226,20 @@ export function createRoutes(server, companies, accounts) {
         const result = companies.forEnrollment(key).machines.enrollHost(params, req)
         companies.enrolled(key)
         return sendJson(res, 200, { ok: true, result })
+      }
+
+      // A webhook from another service: anyone can send one, and only its
+      // secret makes it count (server/webhooks). Its path says nothing of
+      // the company: each one's webhooks are looked through.
+      if (path.startsWith('/hooks/')) {
+        if (req.method !== 'POST') throw new ApiError(405, 'Method Not Allowed')
+        const id = path.slice('/hooks/'.length)
+        const ip = ipKey(clientIp(req))
+        // (Guessing paths: a few misses a minute per address, then nothing.)
+        if (countedServerWide('webhook-miss', ip) >= 30) throw new ApiError(429, 'Too Many Requests: retry in a minute')
+        const company = companies.all().find(c => c.webhooks.has(id))
+        if (!company) { allowServerWide('webhook-miss', ip, 30); throw new ApiError(404, 'Not Found') }
+        return await company.webhooks.receive(id, req, res)
       }
 
       const token = bearer(req)

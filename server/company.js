@@ -8,6 +8,7 @@ import { createOrganization } from './organization/index.js'
 import { createDashboard } from './dashboard/index.js'
 import { createBoards } from './boards/index.js'
 import { createUsage } from './usage/index.js'
+import { createWebhooks } from './webhooks/index.js'
 import { upgradeStoredData } from './data-upgrade.js'
 import { cleanExports } from './company-export.js'
 
@@ -23,6 +24,7 @@ import { cleanExports } from './company-export.js'
 //   machines       pisha-host: joining, its link, terminals
 //   organization   squads, links between them, templates
 //   boards         task boards: people's and agents' tasks
+//   webhooks       what other services send a department, and what came of it
 //   dashboard      what the dashboard reads and does
 export function createCompany(server, options) {
   const platform = createPlatform(server, options)
@@ -36,7 +38,8 @@ export function createCompany(server, options) {
   const organization = createOrganization(platform, { sessions, messaging, observation, machines })
   const boards = createBoards(platform, { sessions, messaging, members: options.members ?? (() => []) })
   const usage = createUsage(platform, { sessions, boards })
-  const dashboard = createDashboard(platform, { sessions, messaging, inbox, plans, observation, machines, organization, permissions, boards, usage })
+  const webhooks = createWebhooks(platform, { sessions, messaging })
+  const dashboard = createDashboard(platform, { sessions, messaging, inbox, plans, observation, machines, organization, permissions, boards, usage, webhooks })
 
   // What a session can ask for, by its name in the request.
   const methods = {
@@ -50,6 +53,7 @@ export function createCompany(server, options) {
     sessions.cleanupUpdates()
     observation.cleanupEvents()
     usage.cleanupUsage()
+    webhooks.cleanupWebhooks()
     platform.cleanupLimits()
     platform.cleanupAudit()
     platform.truncateLogHourly()
@@ -78,5 +82,5 @@ export function createCompany(server, options) {
     try { platform.db.close() } catch {}
   }
 
-  return { id: options.id, platform, sessions, messaging, observation, machines, organization, boards, dashboard, methods, dropClients, close }
+  return { id: options.id, platform, sessions, messaging, observation, machines, organization, boards, webhooks, dashboard, methods, dropClients, close }
 }

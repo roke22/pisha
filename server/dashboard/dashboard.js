@@ -2,7 +2,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { unix, now, guarded, bad, ApiError, VERSION, ROLES, AGENTS } from '../platform/index.js'
 
-export function createDashboard(platform, { sessions, observation, machines, messaging, inbox, plans, organization, permissions, boards, usage }) {
+export function createDashboard(platform, { sessions, observation, machines, messaging, inbox, plans, organization, permissions, boards, usage, webhooks }) {
   const { rotateJoinToken, db, bus, broadcast, sseClients, truncateLog, dataDir, log, every } = platform
   const {
     register, approveSession, presenceOf, personaView, identityCreatedAt, identityExists, isOnline, linksOf,
@@ -167,6 +167,7 @@ export function createDashboard(platform, { sessions, observation, machines, mes
     'boards/task': q => boards.boardReads.task(q),
     'boards/trash': q => boards.boardReads.trash(q),
     usage: q => usage.usageReads.usage(q),
+    ...webhooks.webhookReads,
     events(q) {
       const limit = Math.max(1, Math.min(Number(q.get('limit') ?? 300) || 300, 1000))
       const before = Number(q.get('before') ?? Number.MAX_SAFE_INTEGER)
@@ -369,12 +370,13 @@ export function createDashboard(platform, { sessions, observation, machines, mes
     'inbox/answer': (p, req) => answerFromInbox(p, req.actor),
     'inbox/dismiss': (p, req) => dismissFromInbox(p, req.actor),
     ...Object.fromEntries(Object.entries(boards.boardActions).map(([k, fn]) => [k, (p, req) => fn(p, req.actor ?? null)])),
+    ...webhooks.webhookActions,
   }
 
   // Who may do each thing, at least. Whatever isn't here nobody may do, and the
   // server refuses to start (see the end): every new action says who it is for.
   const dashboardRoles = {
-    reads: { inbox: 'observer', 'inbox/done': 'observer', timeline: 'observer', state: 'observer', events: 'observer', hosts: 'observer', messages: 'observer', stream: 'observer', boards: 'observer', 'boards/tasks': 'observer', 'boards/task': 'observer', 'boards/trash': 'manager', usage: 'observer' },
+    reads: { inbox: 'observer', 'inbox/done': 'observer', timeline: 'observer', state: 'observer', events: 'observer', hosts: 'observer', messages: 'observer', stream: 'observer', boards: 'observer', 'boards/tasks': 'observer', 'boards/task': 'observer', 'boards/trash': 'manager', usage: 'observer', webhooks: 'observer', 'webhooks/deliveries': 'observer', 'webhooks/delivery': 'observer' },
     actions: {
       'inbox/resolve': 'operator', 'inbox/read-all': 'operator', 'inbox/answer': 'operator', 'inbox/dismiss': 'operator', kick: 'operator', clear: 'operator', archive: 'operator', unarchive: 'operator',
       'terminals/open': 'operator', 'terminals/kill': 'operator', 'terminal/ticket': 'operator', 'hosts/personas': 'operator',
@@ -385,6 +387,7 @@ export function createDashboard(platform, { sessions, observation, machines, mes
       'permissions/save': 'manager', 'permissions/delete': 'manager', 'permissions/assign': 'manager',
       'tasks/create': 'operator', 'tasks/update': 'operator', 'tasks/comment': 'operator', 'tasks/notify': 'operator',
       'tasks/delete': 'manager', 'tasks/restore': 'manager', 'boards/create': 'manager', 'boards/update': 'manager', 'boards/delete': 'manager', 'boards/prefix': 'manager', 'boards/flow': 'manager', 'boards/github': 'manager', 'boards/github-off': 'manager', 'boards/github-merge': 'manager', 'boards/github-sync': 'operator', 'boards/github-watch': 'observer',
+      'webhooks/create': 'manager', 'webhooks/update': 'manager', 'webhooks/secret': 'manager', 'webhooks/delete': 'manager',
     },
   }
   for (const [table, roles] of [[dashboardActions, dashboardRoles.actions], [{ ...dashboardReads, stream: true }, dashboardRoles.reads]]) {
