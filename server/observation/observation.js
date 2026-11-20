@@ -182,6 +182,7 @@ export function createObservation(platform) {
       stored++
     } })
     if (stored) bus.emit('session-changed', name)
+    if (batch.length) bus.emit('observed', name, batch.map(({ ts, kind, rest }) => ({ ...rest, ts, kind })))
     if (tokens.length) bus.emit('tokens', name, tokens)
     return { stored: stored + tokens.length }
   }

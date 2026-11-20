@@ -45,6 +45,7 @@ export function createCompany(server, options) {
   const methods = {
     ...observation.observationMethods, ...machines.machineMethods, ...organization.organizationMethods,
     ...sessions.sessionMethods, ...messaging.messagingMethods, ...inbox.inboxMethods, ...plans.planMethods, ...boards.boardMethods,
+    ...webhooks.webhookMethods,
   }
 
   function cleanup() {

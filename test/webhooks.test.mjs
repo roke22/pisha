@@ -68,6 +68,7 @@ async function session(name, role, coordinator) {
   await api('claimSession', { instance, role, ...(coordinator ? { coordinator } : {}) }, secret, instance)
   let offset = 0
   return {
+    call: (method, params) => api(method, params, secret, instance),
     // What has reached it since last asked.
     async messages() {
       const u = await api('getUpdates', { offset, timeout: 0, instance }, secret, instance)
@@ -244,4 +245,52 @@ test('a department with no coordinator any more: the webhook stops, and says why
   assert.ok((await post('webhooks/delete', { id: hook.id })).ok)
   assert.equal((await deliveries(`webhook=${hook.id}`)).length, 0)
   assert.equal((await github(hook.path, hook.secret, { a: 1 })).status, 404)
+})
+
+test('what the coordinator did with a delivery: its turn, the tools, what it sent and spent, and what it says came of it', async () => {
+  const lead = await session('trlead', 'coordinator')
+  await session('trworker', 'worker', 'trlead')
+  const other = await session('trother', 'coordinator')
+  const hook = (await post('webhooks/create', { coordinator: 'trlead', name: 'Issues' })).result
+  assert.equal((await github(hook.path, hook.secret, { action: 'opened', issue: { title: 'Broken link' } }, { event: 'issues' })).status, 202)
+  const msg = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'the notice')
+  const id = Number(/delivery #(\d+)/.exec(msg.caption)[1])
+  assert.match(msg.caption, new RegExp(`webhook_result: delivery ${id}`))
+  const d = () => get(`webhooks/delivery?id=${id}`).then(r => r.result)
+  assert.equal((await d()).status, 'delivered')
+
+  // Its turn on it: the prompt that opens it names the message, as the plugin sends it.
+  const t0 = Date.now()
+  const ev = (kind, rest, dt) => ({ kind, ts: t0 + dt, ...rest })
+  await lead.call('observe', { events: [ev('prompt', { channel: true, text: `<channel source="pisha" kind="pisha_webhook" user="pisha:webhook" message_id="${msg.message_id}" attachment_kind="document" ts="x">\nWebhook…\n</channel>` }, 0)] })
+  await waitFor(async () => (await d()).status === 'processing', 'processing')
+  await lead.call('observe', { events: [
+    ev('tool_start', { id: 't1', tool: 'mcp__pisha__download_attachment', summary: 'download' }, 10),
+    ev('tool_end', { id: 't1', tool: 'mcp__pisha__download_attachment', ok: true, summary: 'saved', duration_ms: 40 }, 60),
+    ev('tool_end', { id: 't2', tool: 'Bash', ok: false, summary: 'curl failed' }, 80),
+  ] })
+  await lead.call('sendMessage', { chat_id: 'trworker', text: 'Fix the broken link in the footer' })
+  await lead.call('observe', { events: [{ kind: 'tokens', ts: t0 + 90, model: 'claude-opus-5-5', input: 10, cache_read: 1000, cache_write: 50, output: 200, cause: 'message', msg: msg.message_id }] })
+  await lead.call('observe', { events: [ev('text', { text: 'Handed the fix to trworker.' }, 100), ev('stop', {}, 200)] })
+  const after = await waitFor(async () => { const x = await d(); return x.status === 'unreported' ? x : null }, 'its turn ended')
+  assert.equal(after.turn_started_at, t0)
+  assert.equal(after.turn_ended_at, t0 + 200)
+  assert.deepEqual(after.trace.tools.map(t => [t.tool, t.ok]), [['mcp__pisha__download_attachment', true], ['Bash', false]])
+  assert.equal(after.trace.text, 'Handed the fix to trworker.')
+  assert.deepEqual(after.trace.messages.map(m => [m.to, m.text]), [['trworker', 'Fix the broken link in the footer']])
+  assert.deepEqual(after.tokens, { input: 10, cache_read: 1000, cache_write: 50, output: 200, calls: 1 })
+  // Counted in Usage as a webhook's.
+  assert.equal((await get('usage')).result.by.cause.find(r => r.cause === 'webhook')?.calls, 1)
+
+  // What it says came of it: only its own, and the last one stands.
+  assert.match((await other.call('webhookResult', { delivery: id, outcome: 'done', summary: 'x' })).description, /was given to you/)
+  assert.match((await lead.call('webhookResult', { delivery: id, outcome: 'maybe', summary: 'x' })).description, /done, ignored, failed/)
+  assert.ok((await lead.call('webhookResult', { delivery: id, outcome: 'done', summary: 'Asked trworker to fix it.' })).ok)
+  assert.ok((await lead.call('webhookResult', { delivery: id, outcome: 'failed', summary: 'trworker could not reach the site.' })).ok)
+  const done = await d()
+  assert.deepEqual([done.status, done.outcome, done.summary], ['failed', 'failed', 'trworker could not reach the site.'])
+  assert.ok(done.reported_at)
+  // (Its trace stays.)
+  assert.equal(done.trace.tools.length, 2)
+  assert.equal((await deliveries(`webhook=${hook.id}&status=failed`)).length, 1)
 })

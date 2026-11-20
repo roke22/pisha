@@ -1054,3 +1054,20 @@ test('webhooks: made on a team\'s page, its address and secret shown once, and w
   await expect(page.locator('.modal')).toContainText('Nothing of it was kept')
   await expect(page.locator('.modal [data-redeliver]')).toHaveCount(0)
 })
+
+test('webhooks: what the coordinator said came of a delivery is in its entry, and in the log', async ({ page }) => {
+  const hook = await server.call('api/webhooks/create', { coordinator: 'coord', name: 'Reported hook' })
+  const body = '{"action":"opened"}'
+  const r = await fetch(`${server.url}${hook.path}`, { method: 'POST', headers: { 'Content-Type': 'application/json', 'X-GitHub-Event': 'issues', 'X-Hub-Signature-256': `sha256=${createHmac('sha256', hook.secret).update(body).digest('hex')}` }, body })
+  const { delivery } = (await r.json()).result
+  // (Once it has been given to the coordinator: right after the answer.)
+  await expect.poll(() => coord.call('webhookResult', { delivery, outcome: 'done', summary: 'Labelled the issue as a bug' }).then(() => true, () => false)).toBe(true)
+  await signIn(page, '#/webhooks')
+  const row = page.locator(`#webhooks tr[data-whd="${delivery}"]`)
+  await expect(row).toContainText('Done')
+  await expect(row).toContainText('Labelled the issue as a bug')
+  await row.click()
+  const d = page.locator('.modal')
+  await expect(d.locator('.wh-turn')).toContainText('What its coordinator did')
+  await expect(d.locator('.wh-report')).toContainText('Labelled the issue as a bug')
+})

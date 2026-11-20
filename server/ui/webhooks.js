@@ -15,7 +15,7 @@ import { postJson } from './machines.js'
 // entry opens with what came, as it came. See server/webhooks.
 
 const STATUS_TAG = {
-  queued: 'info', delivered: 'ok', filtered: '', ping: '', duplicate: '', undelivered: 'err', no_coordinator: 'err',
+  queued: 'info', delivered: 'info', processing: 'info', unreported: 'warn', done: 'ok', ignored: '', failed: 'err', filtered: '', ping: '', duplicate: '', undelivered: 'err', no_coordinator: 'err',
   bad_signature: 'err', bad_json: 'warn', too_large: 'warn', disabled: 'warn', rate_limited: 'warn',
 }
 const STATUSES = Object.keys(STATUS_TAG)
@@ -160,7 +160,7 @@ function hookDialog({ hook = null, coordinator = hook?.coordinator } = {}) {
         <label class="field"><span>${esc(T.whPrompt)}</span><textarea name="prompt" rows="4" maxlength="4000" placeholder="${esc(T.whPromptPh)}">${v('prompt')}</textarea><small class="dim-note">${esc(T.whPromptHint)}</small></label>
         ${editing ? '' : `<label class="field"><span>${esc(T.whOwnSecret)}</span><input name="secret" autocomplete="off" spellcheck="false" placeholder="${esc(T.whOwnSecretPh)}"></label>`}
         <div class="err"></div>
-        <div class="actions"><button type="button" class="btn" data-cancel>${esc(T.cancel)}</button><button type="submit" class="btn primary">${esc(editing ? T.save : T.whCreate)}</button></div>
+        <div class="actions wh-actions"><button type="button" class="btn" data-cancel>${esc(T.cancel)}</button><button type="submit" class="btn primary">${esc(editing ? T.save : T.whCreate)}</button></div>
       </form>`, { wide: true })
   const form = el.querySelector('form')
   form.querySelector('[name=name]').focus()
@@ -205,7 +205,7 @@ function secretDialog(h, { secret, made = false, renewed = false }) {
         <ol class="wh-steps">${steps.map(s => `<li>${esc(s)}</li>`).join('')}</ol>
         <p class="dim-note">${esc(T.whPublicNote)}</p>
       </div>
-      <div class="actions"><button type="button" class="btn primary" data-cancel>${esc(T.close)}</button></div>`, { wide: true })
+      <div class="actions wh-actions"><button type="button" class="btn primary" data-cancel>${esc(T.close)}</button></div>`, { wide: true })
   el.addEventListener('click', async e => {
     const b = e.target.closest('[data-copy-from]')
     if (!b) return
@@ -284,7 +284,7 @@ function reasonText(d) {
   if (d.event === 'pisha_test') return T.whWhyTest
   return d.reason ?? ''
 }
-const resultLine = d => d.summary || (d.status === 'delivered' ? [T.whDeliveredTo(d.coordinator ?? ''), d.reason ? reasonText(d) : ''].filter(Boolean).join(' · ') : reasonText(d))
+const resultLine = d => d.summary || (['processing', 'unreported'].includes(d.status) ? T.whWhy[d.status] : d.status === 'delivered' ? [T.whDeliveredTo(d.coordinator ?? ''), d.reason ? reasonText(d) : ''].filter(Boolean).join(' · ') : reasonText(d))
 
 // One entry, whole: what came, as it came.
 async function deliveryDialog(id) {
@@ -306,18 +306,39 @@ async function deliveryDialog(id) {
           ${fact(T.whSize, esc(T.whBytes(d.size)))}
           ${fact(T.whReason, reasonText(d) ? esc(reasonText(d)) : '')}
           ${fact(T.whTo, coord ? `<a href="#/s/${encodeURIComponent(coord)}/chat" data-cancel>${esc(coord)}</a>${d.message_id ? ` <small>(${esc(T.whMessage(d.message_id))})</small>` : ''}` : '')}
-          ${fact(T.whOutcome, d.outcome ? `${esc(T.whOutcomes[d.outcome] ?? d.outcome)}${d.summary ? ` — ${esc(d.summary)}` : ''}` : '')}
         </dl>
+        ${turnHtml(d)}
         ${headers.length ? `<details class="wh-headers"><summary>${esc(T.whHeaders(headers.length))}</summary><table class="wh-kv">${headers.map(([k, v]) => `<tr><th scope="row">${esc(k)}</th><td><code>${esc(v)}</code></td></tr>`).join('')}</table></details>` : ''}
         <p class="wh-label">${esc(T.whBody)}</p>
         ${d.body == null ? `<p class="dim-note">${esc(T.whNoBody)}</p>` : `<pre class="cmd wh-body">${esc(pretty)}</pre>`}
       </div>
       <div class="err"></div>
-      <div class="actions">${d.body != null && can('manager') ? `<button type="button" class="btn" data-redeliver>${esc(T.whRedeliver)}</button>` : ''}<button type="button" class="btn primary" data-cancel>${esc(T.close)}</button></div>`, { wide: true })
+      <div class="actions wh-actions">${d.body != null && can('manager') ? `<button type="button" class="btn" data-redeliver>${esc(T.whRedeliver)}</button>` : ''}<button type="button" class="btn primary" data-cancel>${esc(T.close)}</button></div>`, { wide: true })
   el.querySelector('[data-redeliver]')?.addEventListener('click', async e => {
     e.currentTarget.disabled = true
     try { const r = await postJson('/api/webhooks/redeliver', { id: d.id }); close(); alertBox(T.whRedelivered(r.id), T.whRedeliver) } catch (err) { el.querySelector('.err').textContent = err.message; e.currentTarget.disabled = false }
   })
+}
+
+// What its coordinator did with it: what it said came of it, its turn on it
+// (how long, the tools it used, the messages it sent, its last words) and
+// what that cost.
+const FULL = new Intl.NumberFormat(LOCALE)
+function turnHtml(d) {
+  if (!d.message_id) return ''
+  const t = d.trace, k = d.tokens
+  const took = d.turn_started_at && d.turn_ended_at ? T.whTook(Math.max(1, Math.round((d.turn_ended_at - d.turn_started_at) / 1000))) : d.turn_started_at ? T.whStillOn : ''
+  const report = d.outcome
+    ? `<p class="wh-report"><span class="tag ${STATUS_TAG[d.outcome]}">${esc(T.whStatus[d.outcome])}</span>${d.summary ? ` ${esc(d.summary)}` : ''}<small>${esc(ago(d.reported_at))}</small></p>`
+    : `<p class="dim-note">${esc(d.turn_started_at ? T.whNoReport : T.whNotYet)}</p>`
+  const tools = t?.tools?.length ? `<details class="wh-trace-part"><summary>${esc(T.whTools(t.tools_total ?? t.tools.length))}</summary><ol class="wh-tools">${t.tools.map(x => `<li class="${x.ok ? '' : 'bad'}"><code>${esc(x.tool)}</code> <span>${esc(x.summary)}</span></li>`).join('')}</ol></details>` : ''
+  const msgs = t?.messages?.length ? `<details class="wh-trace-part"><summary>${esc(T.whSent(t.messages.length))}</summary><ul class="wh-msgs">${t.messages.map(m => `<li><b>${esc(T.whSentTo(m.to))}</b> ${esc(m.text)}</li>`).join('')}</ul></details>` : ''
+  const said = t?.text ? `<details class="wh-trace-part"><summary>${esc(T.whLastWords)}</summary><p class="wh-said">${esc(t.text)}</p></details>` : ''
+  const cost = k ? `<span>${esc(T.whTokens(FULL.format(k.input + k.cache_read + k.cache_write + k.output), k.calls))}</span>` : ''
+  return `<section class="wh-turn"><p class="wh-label">${esc(T.whWhatItDid)}</p>${report}
+      ${took || cost ? `<p class="wh-turn-meta">${took ? `<span>${esc(took)}</span>` : ''}${cost}</p>` : ''}
+      ${tools}${msgs}${said}
+      ${d.turn_ended_at && !t?.tools?.length && !t?.text ? `<p class="dim-note">${esc(T.whNoTrace)}</p>` : ''}</section>`
 }
 
 // --- clicks ----------------------------------------------------------------------

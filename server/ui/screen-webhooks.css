@@ -31,6 +31,8 @@
 .wh-more-row { display: flex; justify-content: center; }
 
 /* The dialogs. */
+/* (Long ones scroll; their buttons stay in sight.) */
+.modal .wh-actions { position: sticky; bottom: calc(var(--pad) * -1); z-index: 1; }
 .wh-form { display: flex; flex-direction: column; gap: 12px; }
 .wh-form .field { margin: 0; }
 .wh-form .field small { display: block; margin-top: 4px; }
@@ -56,6 +58,23 @@
 .wh-kv td { padding: 3px 0; overflow-wrap: anywhere; }
 .wh-body { max-height: 46vh; margin: 0; overflow: auto; white-space: pre; }
 .wh-detail + .err { margin-top: 8px; }
+
+/* What the coordinator did with it. */
+.wh-turn { margin: 0 0 14px; padding: 12px 14px; border-radius: var(--r-md); background: var(--raised); }
+.wh-turn .wh-label { margin-top: 0; }
+.wh-report { margin: 0 0 6px; overflow-wrap: anywhere; }
+.wh-report .tag { margin-right: 4px; vertical-align: 1px; }
+.wh-report small { margin-left: 8px; color: var(--muted); font-size: var(--fs-xs); white-space: nowrap; }
+.wh-turn .dim-note { margin: 0 0 6px; }
+.wh-turn-meta { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 0 0 6px; color: var(--muted); font-size: var(--fs-sm); }
+.wh-trace-part { margin-top: 6px; }
+.wh-trace-part summary { cursor: pointer; color: var(--ink-2); font-size: var(--fs-sm); }
+.wh-tools, .wh-msgs { margin: 6px 0 0; padding-left: 20px; font-size: var(--fs-sm); max-height: 240px; overflow: auto; }
+.wh-tools li, .wh-msgs li { margin: 2px 0; overflow-wrap: anywhere; }
+.wh-tools code { font-family: var(--mono); font-size: 12px; }
+.wh-tools span { color: var(--muted); }
+.wh-tools li.bad code { color: var(--err); }
+.wh-said { margin: 6px 0 0; white-space: pre-wrap; overflow-wrap: anywhere; font-size: var(--fs-sm); max-height: 240px; overflow: auto; }
 
 @media (max-width: 900px) {
   #webhooks { padding: 12px; }
