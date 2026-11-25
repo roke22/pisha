@@ -34,6 +34,7 @@
     "ui",
     "usage",
     "vendor",
+    "webhooks",
     "install",
     "pisha-host.mjs",
     "pisha-host.mjs.sig",

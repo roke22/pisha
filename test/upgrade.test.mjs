@@ -10,6 +10,7 @@ import { fileURLToPath } from 'node:url'
 import { DatabaseSync } from 'node:sqlite'
 import { totpCode, totpStep } from '../server/accounts/totp.js'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ADMIN = 'upgrade-admin-token-0123456789'
@@ -51,7 +52,7 @@ const stop = async s => { s.proc.kill('SIGTERM'); await s.exited }
 test('a 0.0.1 database: the new server starts and cleans every old row', { skip: !oldServerDir && BEFORE_PISHA }, async () => {
   const dataDir = tempDir('pisha-up-')
   mkdirSync(dataDir, { recursive: true })
-  const port = 23000 + Math.floor(Math.random() * 2000)
+  const port = await freePort()
 
   // The old server creates its database.
   const old = await run(join(oldServerDir, 'server/server.js'), dataDir, port)
@@ -90,7 +91,7 @@ test('a 0.0.1 database: the new server starts and cleans every old row', { skip:
 
 test('a 0.0.7 server: machines, sessions and tokens go on working, with nothing to do on them', { skip: !lastRelease && BEFORE_PISHA }, async () => {
   const dataDir = tempDir('pisha-up7-')
-  const port = 23000 + Math.floor(Math.random() * 2000)
+  const port = await freePort()
   const at = path => `http://127.0.0.1:${port}/${path}`
   const post = (path, body, auth) => fetch(at(path), { method: 'POST', headers: { 'Content-Type': 'application/json', ...(auth ? { Authorization: `Bearer ${auth}` } : {}) }, body: JSON.stringify(body ?? {}) }).then(x => x.json())
   const ok = r => { assert.ok(r.ok, r.description); return r.result }
@@ -123,7 +124,7 @@ test('a 0.0.7 server: machines, sessions and tokens go on working, with nothing 
 
 test('a 0.0.7 server: what it held is all there for its first owner, and its coordinators use the inbox', { skip: !lastRelease && BEFORE_PISHA }, async () => {
   const dataDir = tempDir('pisha-up7b-')
-  const port = 23000 + Math.floor(Math.random() * 2000)
+  const port = await freePort()
   const at = path => `http://127.0.0.1:${port}/${path}`
   const post = (path, body, auth, instance) => fetch(at(path), {
     method: 'POST',

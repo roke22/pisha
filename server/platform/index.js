@@ -29,6 +29,9 @@ export const FIRST_COMPANY = 'default'
 //   session-changed (name)   what the dashboard shows of it changed
 //   notice (worker, text)    its coordinator should hear this
 //   context-cleared (name)   /clear took effect in that session
+//   observed (name, events)  what a session reported doing, as it was stored
+//   tokens (name, list)      what it spent, and on what
+//   message-stored (row)     a message, as it was stored
 export function createPlatform(server, { id, dir, quotas, routeEnrollment }) {
   // What repeats while this company runs, and stops with it.
   const timers = new Set()

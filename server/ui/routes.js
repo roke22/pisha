@@ -20,6 +20,10 @@ export function parseRoute(hash) {
   // The task boards; one of them, with a task open beside it (or a new one).
   if (hash === '#/boards') return { view: 'boards' }
   if (hash === '#/usage') return { view: 'usage' }
+  // What came in through the webhooks: all of them, or one team's.
+  if (hash === '#/webhooks') return { view: 'webhooks' }
+  const wq = hash.match(/^#\/webhooks\/q\/([^/]+)$/)
+  if (wq) return ROUTE_NAME.test(dec(wq[1])) ? { view: 'webhooks', team: dec(wq[1]) } : { view: 'webhooks' }
   const bd = hash.match(/^#\/b\/(\d{1,9})(?:\/(new|[A-Za-z][A-Za-z0-9]{0,5}-\d{1,9}))?$/)
   if (bd) return { view: 'board', board: Number(bd[1]), ...(bd[2] ? { task: bd[2] } : {}) }
   if (hash === '#/new') return { view: 'newteam' }

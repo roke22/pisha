@@ -86,6 +86,8 @@ const bodyPools = {
   main: { bytes: 0, cap: BODY_BYTES_IN_FLIGHT, free: 64 * 1024 },
   // (A registration's body, at most 4 KB, never counts: enrollments can't block it.)
   public: { bytes: 0, cap: 4 * 1024 * 1024, free: 4096, deadline: 10_000 },
+  // Webhooks from other services: anyone can send them too, and they are bigger.
+  hooks: { bytes: 0, cap: 16 * 1024 * 1024, free: 0, deadline: 10_000 },
 }
 
 // An upload, straight to its file: the same limits as readBody (size, idle
@@ -121,7 +123,7 @@ export function readBodyToFile(req, max, path) {
     req.on('close', () => { if (finish(false)) reject(new ApiError(400, 'Bad Request: connection closed')) })
   })
 }
-function readBody(req, max, { pool: poolName = 'main' } = {}) {
+export function readBody(req, max, { pool: poolName = 'main' } = {}) {
   const pool = bodyPools[poolName]
   return new Promise((resolve, reject) => {
     if (Number(req.headers['content-length'] ?? 0) > max) {

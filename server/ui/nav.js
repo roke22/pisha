@@ -99,6 +99,7 @@ export function renderNav() {
       <a href="#/teams"${here(isTeams(r) && !r.squad)}>${icon('teams')}<span class="name">${esc(T.teams)}</span></a>
       <a href="#/boards"${here(isBoards(r))}>${icon('board')}<span class="name">${esc(T.boards)}</span>${boardsPending() ? `<span class="rail-count" title="${esc(T.pendingTitle)}">${boardsPending()}</span>` : ''}</a>
       <a href="#/usage"${here(r.view === 'usage')}>${icon('usage')}<span class="name">${esc(T.usage)}</span></a>
+      <a href="#/webhooks"${here(r.view === 'webhooks')}>${icon('webhook')}<span class="name">${esc(T.whTitle)}</span></a>
       <div class="rail-row"><a href="#/hosts"${here(isMachines(r))}>${icon('machines')}<span class="name">${esc(T.machines)}</span>${machineList.length ? `<span class="rail-count">${esc(T.ofTotal(machinesOn, machineList.length))}</span>` : ''}</a>${can('manager') ? `<button type="button" class="icon-btn" id="addHostBtn" title="${esc(T.addTitle)}" aria-label="${esc(T.addTitle)}">${icon('plus')}</button>` : ''}</div>
     </div>`
 

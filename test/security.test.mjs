@@ -11,10 +11,11 @@ import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { connect } from 'node:net'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ADMIN = 'security-admin-token-0123456789'
-const PORT = 21000 + Math.floor(Math.random() * 2000)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const dataDir = tempDir('pisha-sec-')
 const sleep = ms => new Promise(r => setTimeout(r, ms))
@@ -59,7 +60,7 @@ after(() => server?.kill('SIGTERM'))
 
 test('the dashboard asks browsers to stay on https also behind a TLS proxy', async () => {
   assert.equal((await fetch(`${URL_}/`)).headers.get('strict-transport-security'), null)
-  const port = PORT + 3000
+  const port = await freePort()
   const proxied = spawn(process.execPath, [join(ROOT, 'server/server.js')], {
     env: { ...process.env, PORT: String(port), DATA_DIR: tempDir('pisha-hsts-'), PISHA_SERVER_TOKEN: ADMIN, PUBLIC_URL: 'https://pisha.example.com' },
     stdio: 'ignore',
@@ -824,7 +825,7 @@ test('machines connect with a one-time ticket, and their secret never goes in th
 
 test('a server that cannot start ends with an error, for whatever started it', async () => {
   const data = tempDir('pisha-nostart-')
-  const port = PORT + 3700 + Math.floor(Math.random() * 200)
+  const port = await freePort()
   // (Files that exist, but aren't a certificate and a key.)
   writeFileSync(join(data, 'bad.crt'), 'not a certificate')
   writeFileSync(join(data, 'bad.key'), 'not a key')
@@ -838,7 +839,7 @@ test('a server that cannot start ends with an error, for whatever started it', a
 
 test('the cap on sessions also holds for registrations that arrive together', async t => {
   const data = tempDir('pisha-cap-')
-  const port = PORT + 3900 + Math.floor(Math.random() * 90)
+  const port = await freePort()
   const p = spawn(process.execPath, [join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: data, PISHA_MAX_SESSIONS: '2', PISHA_SERVER_TOKEN: 'cap-test-server-token' }, stdio: 'ignore' })
   t.after(() => p.kill('SIGKILL'))
   for (let i = 0; ; i++) {
@@ -874,14 +875,13 @@ test('text with many joiners keeps them where they belong', async () => {
 
 test('the tokens are printed the time they are made, and not at every start', async () => {
   const data = tempDir('pisha-banner-')
-  const start = env => new Promise((resolve, reject) => {
-    const port = PORT + 3100 + Math.floor(Math.random() * 500)
+  const start = async env => { const port = await freePort(); return new Promise((resolve, reject) => {
     const p = spawn(process.execPath, [join(ROOT, 'server/server.js')], { env: { ...process.env, PORT: String(port), DATA_DIR: data, PISHA_SERVER_TOKEN: '', SWARM_SERVER_TOKEN: '', ...env }, stdio: ['ignore', 'ignore', 'pipe'] })
     let out = ''
     p.stderr.on('data', d => { out += d; if (/Dashboard: /.test(out)) { p.kill('SIGTERM') } })
     p.on('close', () => resolve(out))
     setTimeout(() => { p.kill('SIGKILL'); reject(new Error('no banner')) }, 10000)
-  })
+  }) }
   const first = await start({})
   const admin = readFileSync(join(data, 'server-token'), 'utf8').trim()
   const join_ = readFileSync(join(data, 'join-token'), 'utf8').trim()

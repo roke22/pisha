@@ -23,7 +23,8 @@ const SERVER_MODULES = {
   organization: ['platform', 'sessions', 'messaging', 'observation', 'machines'],
   boards: ['platform', 'sessions', 'messaging'],
   usage: ['platform', 'sessions', 'boards'],
-  dashboard: ['platform', 'sessions', 'messaging', 'observation', 'machines', 'organization', 'permissions', 'boards', 'usage'],
+  webhooks: ['platform', 'sessions', 'messaging'],
+  dashboard: ['platform', 'sessions', 'messaging', 'observation', 'machines', 'organization', 'permissions', 'boards', 'usage', 'webhooks'],
   ui: [],
 }
 const SERVER_OTHER_FOLDERS = ['vendor']

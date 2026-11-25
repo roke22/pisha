@@ -11,6 +11,7 @@ import { renderInbox } from './inbox.js'
 import { renderTeams } from './teams.js'
 import { renderBoards } from './boards.js'
 import { renderUsage } from './usage.js'
+import { renderWebhooks } from './webhooks.js'
 import { renderTeam } from './team.js'
 import { renderSessionAside } from './session.js'
 import { renderNewTeam } from './newteam.js'
@@ -102,6 +103,7 @@ export function route() {
   $('teams').hidden = r.view !== 'teams'
   $('boards').hidden = r.view !== 'boards' && r.view !== 'board'
   $('usage').hidden = r.view !== 'usage'
+  $('webhooks').hidden = r.view !== 'webhooks'
   $('team').hidden = r.view !== 'team'
   $('newteam').hidden = r.view !== 'newteam'
   $('addmachine').hidden = r.view !== 'addmachine'
@@ -133,12 +135,12 @@ export function route() {
     $('session').hidden = true
     $('mosaic').hidden = false
     buildMosaic()
-  } else if (r.view === 'archived' || r.view === 'org' || r.view === 'inbox' || r.view === 'teams' || r.view === 'boards' || r.view === 'board' || r.view === 'usage' || r.view === 'team' || r.view === 'newteam' || r.view === 'addmachine') {
+  } else if (r.view === 'archived' || r.view === 'org' || r.view === 'inbox' || r.view === 'teams' || r.view === 'boards' || r.view === 'board' || r.view === 'usage' || r.view === 'webhooks' || r.view === 'team' || r.view === 'newteam' || r.view === 'addmachine') {
     if (state.sessionView) { state.sessionView.destroy(); state.sessionView = null; $('session').innerHTML = '' }
     clearMosaic()
     $('session').hidden = true
     $('mosaic').hidden = true
-    if (r.view === 'org') renderOrg(); else if (r.view === 'inbox') renderInbox(); else if (r.view === 'teams') renderTeams(); else if (r.view === 'boards' || r.view === 'board') renderBoards(); else if (r.view === 'usage') renderUsage(); else if (r.view === 'team') renderTeam(); else if (r.view === 'newteam') renderNewTeam(); else if (r.view === 'addmachine') renderAddMachine(); else renderArchived()
+    if (r.view === 'org') renderOrg(); else if (r.view === 'inbox') renderInbox(); else if (r.view === 'teams') renderTeams(); else if (r.view === 'boards' || r.view === 'board') renderBoards(); else if (r.view === 'usage') renderUsage(); else if (r.view === 'webhooks') renderWebhooks(); else if (r.view === 'team') renderTeam(); else if (r.view === 'newteam') renderNewTeam(); else if (r.view === 'addmachine') renderAddMachine(); else renderArchived()
   } else if (st) {
     // The session's live terminal, as in Machines: watch it and type to it.
     if (state.sessionView) { state.sessionView.destroy(); state.sessionView = null; $('session').innerHTML = '' }

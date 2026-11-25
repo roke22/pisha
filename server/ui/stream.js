@@ -20,6 +20,7 @@ import { renderInbox, refreshInbox } from './inbox.js'
 import { refreshTeams } from './teams.js'
 import { boardsArrived, taskArrived, boardDeleted } from './boards.js'
 import { refreshTeam, noteReport } from './team.js'
+import { webhooksArrived, deliveryArrived } from './webhooks.js'
 import { refreshSessionAside } from './session.js'
 import { setVersion, showLogin } from './app.js'
 
@@ -121,6 +122,8 @@ function onStream(type, data) {
     soon(renderNav); soon(refreshInbox); soon(refreshTeams); soon(refreshTeam); soon(refreshSessionAside)
     return
   }
+  if (type === 'webhooks') return webhooksArrived(data)
+  if (type === 'webhook-delivery') return deliveryArrived(data)
   if (type === 'squads') {
     state.squadMeta = new Map((Array.isArray(data) ? data : []).map(q => [q.coordinator, q]))
     if (currentRoute().view === 'org') soon(renderOrg)

@@ -6,7 +6,7 @@ import { now, bad } from '../platform/index.js'
 // the session, its team and role then, its agent and model, what started the
 // turn (the user, its coordinator, a linked team, the board…) and the board
 // task it was about. Only counts, never what was said.
-export const CAUSES = ['user', 'inbox', 'coordinator', 'worker', 'link', 'board', 'system', 'other', 'self']
+export const CAUSES = ['user', 'inbox', 'coordinator', 'worker', 'link', 'board', 'webhook', 'system', 'other', 'self']
 const KINDS = ['input', 'cache_read', 'cache_write', 'output']
 const HOUR = 3600_000
 const DAY = 24 * HOUR
@@ -46,6 +46,7 @@ export function createUsage(platform, { sessions, boards }) {
     const m = db.prepare('SELECT from_name, target, system FROM messages WHERE id = ?').get(ev.msg)
     if (!m) return 'other'
     if (m.from_name === boards.BOARD_SENDER) return 'board'
+    if (m.from_name === 'pisha:webhook') return 'webhook' // (messaging's WEBHOOK_SENDER: this module doesn't see messaging)
     if (m.system) return 'system'
     const me = whoIs(name), them = whoIs(m.from_name)
     if (me.role === 'worker' && me.team === m.from_name) return 'coordinator'

@@ -9,10 +9,11 @@ import { spawn } from 'node:child_process'
 import { join, dirname } from 'node:path'
 import { fileURLToPath } from 'node:url'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const TOKEN = 'test-server-token-boards-0123456789'
-const PORT = 19500 + Math.floor(Math.random() * 400)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const sleep = ms => new Promise(r => setTimeout(r, ms))
 

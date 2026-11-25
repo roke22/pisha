@@ -13,6 +13,8 @@ import { noticeAccepted, signatureAccepted } from './signed.js'
 
 // The server's own sender of what a task board says (see server/boards).
 const BOARD_SENDER = 'pisha:board'
+// And of what a webhook brought (see server/webhooks).
+const WEBHOOK_SENDER = 'pisha:webhook'
 import { decisionHit } from './risk.js'
 
 // Names and titles are sender-controlled. They land inside the <channel>
@@ -203,6 +205,32 @@ export async function handleInbound(s, msg, { edited = false } = {}) {
       agent.deliver({
         content: safeContent(visibleText(text)),
         meta: { kind: 'pisha_board', user: BOARD_SENDER, ts: new Date((msg.date ?? 0) * 1000).toISOString() },
+      })
+      return
+    }
+    // A webhook: what an outside service sent the department, in the attached
+    // file the server's (signed) words name. Set up by the user, so it is
+    // theirs to act on; the file's content is outside data, never orders.
+    if (String(msg.from?.id) === WEBHOOK_SENDER) {
+      const doc = msg.document
+      if (msg.chat?.type !== 'private' || !active(s)) return
+      const named = /\(file_id ([A-Za-z0-9_-]{1,64}), sha256 ([0-9a-f]{64})\)/.exec(String(text))
+      if (!doc?.file_id || !named || named[1] !== doc.file_id) { log('webhook notice ignored: its attachment is not the one it names'); return }
+      // (Downloaded only if it is the file the server signed for.)
+      if (s.fileHashes.size > 2000) s.fileHashes.delete(s.fileHashes.keys().next().value)
+      s.fileHashes.set(doc.file_id, named[2])
+      agent.deliver({
+        content: safeContent(visibleText(text)),
+        meta: {
+          kind: 'pisha_webhook', user: WEBHOOK_SENDER,
+          ...(msg.message_id != null ? { message_id: safeName(msg.message_id) } : {}),
+          attachment_kind: 'document',
+          attachment_file_id: safeName(doc.file_id),
+          ...(doc.file_size != null ? { attachment_size: safeName(doc.file_size) } : {}),
+          attachment_mime: 'application/json',
+          ...(doc.file_name ? { attachment_name: safeName(doc.file_name) } : {}),
+          ts: new Date((msg.date ?? 0) * 1000).toISOString(),
+        },
       })
       return
     }

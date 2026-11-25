@@ -13,10 +13,11 @@ import { createHash } from 'node:crypto'
 import { DatabaseSync } from 'node:sqlite'
 import { totpCode, totpStep } from '../server/accounts/totp.js'
 import { tempDir } from './tempdirs.mjs'
+import { freePort } from './ports.mjs'
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 const ADMIN = 'accounts-admin-token-0123456789'
-const PORT = 26000 + Math.floor(Math.random() * 2000)
+const PORT = await freePort()
 const URL_ = `http://127.0.0.1:${PORT}`
 const ORIGIN = URL_
 const dataDir = tempDir('pisha-accounts-')
@@ -463,7 +464,7 @@ test('signing in is limited per address and per email, also for an email nobody 
 })
 
 test('the server token stays on /api only if the server was started to keep it', async () => {
-  const port = PORT + 3000
+  const port = await freePort()
   const proc = spawn(process.execPath, [join(ROOT, 'server/server.js'), '--allow-token-api'], {
     env: { ...process.env, PORT: String(port), DATA_DIR: tempDir('pisha-accounts-'), PISHA_SERVER_TOKEN: ADMIN }, stdio: 'ignore',
   })

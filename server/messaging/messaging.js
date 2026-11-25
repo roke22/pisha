@@ -1,9 +1,12 @@
 import { extname, join } from 'node:path'
-import { randomBytes } from 'node:crypto'
-import { rmSync } from 'node:fs'
+import { createHash, randomBytes } from 'node:crypto'
+import { mkdirSync, rmSync, writeFileSync } from 'node:fs'
 import {
   unix, now, cutText, cleanText, bad, ApiError, readBodyToFile,
 } from '../platform/index.js'
+
+// The server's own sender of what a webhook brought (see server/webhooks).
+export const WEBHOOK_SENDER = 'pisha:webhook'
 
 export function createMessaging(platform, { sessions }) {
   const {
@@ -225,6 +228,7 @@ export function createMessaging(platform, { sessions }) {
     // (A notice about a worker counts as the worker's: it shares that worker's
     // queue cap and goes when the worker is deleted.)
     inTx(() => { for (const r of recipients) if (!skip.has(r)) pushUpdate(r, { message: msg }, from) })
+    bus.emit('message-stored', row)
     // Tell the sender who isn't connected: queued (coordinators) or, in a group,
     // skipped (workers).
     return offline.length ? { ...msg, pisha_offline_recipients: offline } : msg
@@ -544,8 +548,30 @@ export function createMessaging(platform, { sessions }) {
   // such, from a sender no session can be (see server/boards).
   const boardNotice = (coordinator, text) => storeMessage('pisha:board', coordinator, { text, system: true })
 
+  // From a webhook to its department's coordinator: what an outside service
+  // sent, as it came, in an attached file; and the server's words about it
+  // (which name the file and its sha256: they are what is signed, so the
+  // plugin checks the file against them). See server/webhooks.
+  function webhookNotice(coordinator, textFor, { name, bytes }) {
+    ensureRoom()
+    if (db.prepare('SELECT COALESCE(SUM(size), 0) AS n FROM files').get().n + bytes.length > quota('max_files_gb', MAX_FILES_GB) * 1024 ** 3) throw new ApiError(507, 'Insufficient Storage: the server keeps no more attachments until old ones expire')
+    const fileId = `f_${randomBytes(12).toString('base64url')}`
+    const rel = `files/${fileId}.json`
+    mkdirSync(join(dataDir, 'files'), { recursive: true })
+    writeFileSync(join(dataDir, rel), bytes, { mode: 0o600, flag: 'wx' })
+    try {
+      db.prepare('INSERT INTO files (file_id, file_unique_id, path, name, mime, size, owner, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
+        .run(fileId, randomBytes(6).toString('hex'), rel, name.replace(/[^A-Za-z0-9._-]/g, '_').slice(0, 120), 'application/json', bytes.length, WEBHOOK_SENDER, now())
+      return storeMessage(WEBHOOK_SENDER, coordinator, { text: textFor(fileId, createHash('sha256').update(bytes).digest('hex')), fileId, fileKind: 'document', system: true })
+    } catch (err) {
+      db.prepare('DELETE FROM files WHERE file_id = ?').run(fileId)
+      rmSync(join(dataDir, rel), { force: true })
+      throw err
+    }
+  }
+
   return {
-    boardNotice, messagingMethods, cleanupMessages, upload, uploadMime, canSeeFile, related, messageView, closeGroup,
+    boardNotice, webhookNotice, messagingMethods, cleanupMessages, upload, uploadMime, canSeeFile, related, messageView, closeGroup,
     handOverGroup, fileRow,
   }
 }

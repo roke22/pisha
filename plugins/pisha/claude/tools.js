@@ -208,6 +208,21 @@ export const TOOLS = [
     },
   },
   {
+    name: 'webhook_result',
+    _meta: ALWAYS_LOAD, // (the notice names it: it must be there without searching)
+    description: 'Coordinator: what came of a webhook delivery you received (kind="pisha_webhook", "delivery #N"). The user reads it in the webhook\'s log, beside what arrived. Call it once you have dealt with it: done (you or your workers did what it called for), ignored (nothing to do) or failed (it could not be done), with a short summary of what was done and why. If a worker is still on it, wait for its report and call it then; called again, the last one stands.',
+    inputSchema: {
+      type: 'object',
+      properties: {
+        delivery: { type: 'integer', description: 'The delivery\'s number, from the notice ("delivery #N").' },
+        deliveries: { type: 'array', items: { type: 'integer' }, description: 'Instead of delivery: several numbers that share this outcome (those of a burst that came together).' },
+        outcome: { type: 'string', enum: ['done', 'ignored', 'failed'] },
+        summary: { type: 'string', description: 'What was done with it, or why nothing was, in a few lines.' },
+      },
+      required: ['outcome', 'summary'],
+    },
+  },
+  {
     name: 'tell_user',
     _meta: ALWAYS_LOAD,
     description: 'Coordinator: leave something in the user\'s inbox that they will want to know when they come back and that needs no answer: a piece of work finished, its outcome, or a problem they should see. Not routine progress: that stays in this conversation. They may reply to it: their reply reaches this session typed as "Inbox #<id> (...), you told the user this, and they reply from their inbox: ...", and it is the user telling you what to do next.',
@@ -509,6 +524,12 @@ export async function callTool(name, args) {
       return name === 'ask_user'
         ? `It is in the user's inbox (#${id}). They answer when they can: go on with whatever doesn't depend on it. Until they answer, nobody does that part, not even written and left unapplied. If you learn something that changes it, edit_inbox. In your plan (update_plan), that task waits on the user.`
         : `It is in the user's inbox (#${id}).${planHint()}`
+    }
+    case 'webhook_result': {
+      const several = Array.isArray(args.deliveries) && args.deliveries.length
+      const r = await call('webhookResult', { ...(several ? { deliveries: args.deliveries.map(Number) } : { delivery: Number(args.delivery) }), outcome: String(args.outcome ?? ''), summary: maskOutgoing(String(args.summary ?? '')).text })
+      const which = r.deliveries?.length > 1 ? `Deliveries ${r.deliveries.map(n => `#${n}`).join(', ')}` : `Delivery #${r.delivery}`
+      return `${which} written down as ${r.outcome}: the user sees it in the webhook's log.`
     }
     case 'update_plan': {
       const clean = v => (v == null || v === '' ? undefined : maskOutgoing(String(v)).text)
