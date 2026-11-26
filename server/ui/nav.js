@@ -97,10 +97,10 @@ export function renderNav() {
   let html = `<div class="rail-group" role="group" aria-label="${esc(T.mainNav)}">
       <a href="#/"${here(r.view === 'inbox')}>${icon('inbox')}<span class="name">${esc(T.inbox)}</span>${inboxN ? `<span class="badge">${inboxN}</span>` : ''}</a>
       <a href="#/teams"${here(isTeams(r) && !r.squad)}>${icon('teams')}<span class="name">${esc(T.teams)}</span></a>
-      <a href="#/boards"${here(isBoards(r))}>${icon('board')}<span class="name">${esc(T.boards)}</span>${boardsPending() ? `<span class="rail-count" title="${esc(T.pendingTitle)}">${boardsPending()}</span>` : ''}</a>
-      <a href="#/usage"${here(r.view === 'usage')}>${icon('usage')}<span class="name">${esc(T.usage)}</span></a>
-      <a href="#/webhooks"${here(r.view === 'webhooks')}>${icon('webhook')}<span class="name">${esc(T.whTitle)}</span></a>
       <div class="rail-row"><a href="#/hosts"${here(isMachines(r))}>${icon('machines')}<span class="name">${esc(T.machines)}</span>${machineList.length ? `<span class="rail-count">${esc(T.ofTotal(machinesOn, machineList.length))}</span>` : ''}</a>${can('manager') ? `<button type="button" class="icon-btn" id="addHostBtn" title="${esc(T.addTitle)}" aria-label="${esc(T.addTitle)}">${icon('plus')}</button>` : ''}</div>
+      <a href="#/boards"${here(isBoards(r))}>${icon('board')}<span class="name">${esc(T.boards)}</span>${boardsPending() ? `<span class="rail-count" title="${esc(T.pendingTitle)}">${boardsPending()}</span>` : ''}</a>
+      <a href="#/webhooks"${here(r.view === 'webhooks')}>${icon('webhook')}<span class="name">${esc(T.whTitle)}</span></a>
+      <a href="#/usage"${here(r.view === 'usage')}>${icon('usage')}<span class="name">${esc(T.usage)}</span></a>
     </div>`
 
   // Names waiting for the user: their ⋯ menu has the button.
@@ -120,8 +120,8 @@ export function renderNav() {
   // the thumb's reach. (There is no sidebar there: all it has is reached from these.)
   setHtml($('tabbar'), `<a href="#/"${here(r.view === 'inbox')}>${icon('inbox')}<span>${esc(T.inbox)}</span>${inboxN ? `<span class="badge">${inboxN}</span>` : ''}</a>
     <a href="#/teams"${here(isTeams(r) || r.view === 'session')}>${icon('teams')}<span>${esc(T.teams)}</span></a>
-    <a href="#/boards"${here(isBoards(r))}>${icon('board')}<span>${esc(T.boards)}</span></a>
     <a href="#/hosts"${here(isMachines(r))}>${icon('machines')}<span>${esc(T.machines)}</span></a>
+    <a href="#/boards"${here(isBoards(r))}>${icon('board')}<span>${esc(T.boards)}</span></a>
     <button type="button" class="rail-item" data-palette>${icon('search')}<span>${esc(T.goToShort)}</span></button>
     <button type="button" class="rail-item" data-settings aria-haspopup="dialog">${icon('settings')}<span>${esc(T.settings)}</span></button>`)
 }

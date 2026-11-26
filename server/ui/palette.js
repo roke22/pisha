@@ -57,9 +57,9 @@ function candidates() {
     { group: 'screens', label: T.teams, lead: icon('teams'), go: '#/teams' },
     { group: 'screens', label: T.viewMosaic, sub: T.allSessions, lead: icon('teams'), go: '#/mosaic' },
     { group: 'screens', label: T.org, lead: icon('teams'), go: '#/org' },
-    { group: 'screens', label: T.usage, sub: T.usageSub, lead: icon('usage'), go: '#/usage' },
-    { group: 'screens', label: T.whTitle, sub: T.whSub, lead: icon('webhook'), go: '#/webhooks' },
     { group: 'screens', label: T.machines, sub: hosts.size ? T.ofTotal([...hosts.values()].filter(h => h.online).length, hosts.size) : '', lead: icon('machines'), go: '#/hosts' },
+    { group: 'screens', label: T.whTitle, sub: T.whSub, lead: icon('webhook'), go: '#/webhooks' },
+    { group: 'screens', label: T.usage, sub: T.usageSub, lead: icon('usage'), go: '#/usage' },
     { group: 'screens', label: T.settings, lead: icon('settings'), run: async () => (await import('./people.js')).openSettings() },
   )
   if (sortedSessions({ archived: true }).length) items.push({ group: 'screens', label: T.archived, lead: icon('archive'), go: '#/archived' })
