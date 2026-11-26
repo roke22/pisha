@@ -296,6 +296,8 @@ export function createMachines(platform, { sessions, observation, permissions })
       created_at: Number.isFinite(t?.created_at) ? t.created_at : null,
       // The permission profile it was opened with, by name (only for showing).
       profile: str(t?.profile, 40),
+      // Why its plugin didn't log in, as the machine read it (only for showing).
+      login_error: str(t?.login_error, 600),
     })).filter(t => t.id && NAME_RE.test(t.id))
     return {
       hostname: str(info.hostname, 100),

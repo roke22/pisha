@@ -155,5 +155,7 @@ export async function startMachine(server, name, terminal, { screens = {}, code:
     }
   })
   server.onClose(() => ws.close())
-  return { id, typed, answers, identities, opened }
+  // (What a session it runs says next, as pisha-host would: login_error…)
+  const patchTerminal = (term, patch) => { Object.assign(info.terminals.find(t => t.id === term), patch); send({ t: 'info', info }) }
+  return { id, typed, answers, identities, opened, patchTerminal }
 }

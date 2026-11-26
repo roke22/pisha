@@ -562,7 +562,16 @@ function computeTrustedPath() {
   // A real node later on: the shim folders go after everything else.
   // None at all: they are left out (a shim that picks by folder never decides).
   const realNode = dirs.some(d => { const p = join(d, 'node'); try { accessSync(p, FS.X_OK) } catch { return false } return !dispatcherOf(p) && !untrustedExecutable(p) })
-  return [...dirs, ...(realNode ? moved : [])].join(':') || '/usr/bin:/bin'
+  const path = [...dirs, ...(realNode ? moved : [])]
+  // No usable node on the PATH at all (a version manager's not loaded where
+  // this was started, a ~/.bashrc the installer couldn't write): the one this
+  // program runs on, which its launcher chose, or the plugin and its hooks
+  // couldn't start in any session.
+  if (!realNode) {
+    const own = dirname(process.execPath)
+    if (isAbsolute(own) && !untrustedFolder(own) && !untrustedExecutable(process.execPath) && !sessionRoots().some(r => within(realOr(own), r))) path.push(own)
+  }
+  return path.join(':') || '/usr/bin:/bin'
 }
 function computeTrustedFolders() {
   const roots = sessionRoots()
@@ -643,10 +652,12 @@ async function listTerminals() {
       agent: AGENT_IDS.includes(spec.agent) ? spec.agent : 'claude',
       profile: typeof spec.profile === 'string' ? spec.profile : null,
       created_at: Number(created) * 1000,
+      ...claudeCode.loginError(tname.slice(PREFIX.length), Number(created) * 1000),
     })
   }
   return list
 }
+
 
 // --- validation of what the server asks for -------------------------------------------
 
@@ -1278,12 +1289,15 @@ function sessionCommand(s, claude, dir, env) {
   if (s.personaInfo?.kind === 'agent') argv.push('--agent', s.personaInfo.name)
   // Its permission profile, as Claude Code's own rules: they are added to the
   // user's and the project's, and a rule that forbids wins over any that
-  // allows, wherever each one is.
+  // allows, wherever each one is. Always with the session's own inbox, where
+  // the plugin saves what other sessions and webhooks attach: it is outside
+  // the working folder, and reading it must not wait for an absent user.
+  // ("//" starts an absolute path in a rule.)
   const permissionsFile = join(dir, 'permissions.json')
-  if (s.permissions) {
-    writePrivate(permissionsFile, JSON.stringify({ permissions: { allow: s.permissions.allow, ask: s.permissions.ask, deny: s.permissions.deny } }, null, 2) + '\n')
-    argv.push('--settings', permissionsFile)
-  } else rmSync(permissionsFile, { force: true })
+  const inbox = `Read(/${join(dir, 'inbox')}/**)`
+  const p = s.permissions ?? { allow: [], ask: [], deny: [] }
+  writePrivate(permissionsFile, JSON.stringify({ permissions: { allow: [inbox, ...p.allow], ask: p.ask, deny: p.deny } }, null, 2) + '\n')
+  argv.push('--settings', permissionsFile)
   return argv
 }
 
@@ -1322,6 +1336,19 @@ export function answerLanded(screen, line) {
 
 const ASKING_ON_SCREEN = /^\s*❯\s*\d+\.\s|Esc to cancel|Enter to confirm/m
 
+// Why the plugin of a session didn't log in, if it said so since this start
+// (<state>/login-error.json): only the plugin's stderr knows otherwise, and
+// the dashboard would just show the session as disconnected.
+function loginError(name, since) {
+  try {
+    const file = join(pluginStateDir(name), 'login-error.json')
+    const st = lstatSync(file)
+    if (!st.isFile() || st.size > 4096 || st.mtimeMs < since - 2000) return {}
+    const message = JSON.parse(readFileSync(file, 'utf8'))?.message
+    return typeof message === 'string' && message ? { login_error: plain(message.replace(/\s+/g, ' ')).slice(0, 600) } : {}
+  } catch { return {} }
+}
+
 const claudeCode = {
   // Where the program is (checked, see claudeBinary), and which version.
   program: claudeBinary,
@@ -1342,6 +1369,8 @@ const claudeCode = {
   findPersona,
   personaPrompt,
   conversation: ownConversation,
+  // Why its plugin didn't log in, if it said so (for the dashboard).
+  loginError,
   // The Pisha plugin in its config: installed, and how it is set up.
   plugin: {
     status: pluginStatus,

@@ -4,7 +4,7 @@ import { rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { createInterface } from 'node:readline'
 import {
-  log, VERSION, NAME_RE, DEFAULT_COORDINATOR, stateDirFor, shuttingDown, readLaunch, readApproved, agent,
+  log, VERSION, NAME_RE, DEFAULT_COORDINATOR, stateDirFor, shuttingDown, readLaunch, takeLaunch, launchTooOld, readApproved, agent, writePrivateFile,
 } from '../core/index.js'
 import { instructionsFor, personaRule } from './instructions.js'
 import { login } from './login.js'
@@ -144,6 +144,17 @@ function waitingNote() {
   return n ? `\n\n[Pisha] ${n} message${n === 1 ? '' : 's'} waiting for you (a reply or a report, perhaps): ${n === 1 ? 'it is' : 'they are'} typed into your terminal only when this turn ends. Finish what you are doing and END YOUR TURN now; don't wait or check again.` : ''
 }
 
+// Why an automatic login didn't happen, for pisha-host to show in the
+// dashboard: stderr reaches no one, and a session that only shows as
+// disconnected says nothing about what to fix. Removed once it logs in.
+function loginProblem(name, message) {
+  const file = join(stateDirFor(name), 'login-error.json')
+  try {
+    if (message == null) rmSync(file, { force: true })
+    else writePrivateFile(file, JSON.stringify({ start: process.env.PISHA_LAUNCH_START ?? null, at: Date.now(), message: String(message).slice(0, 600) }) + '\n')
+  } catch {}
+}
+
 function handleNotification(msg) {
   switch (msg.method) {
     case 'notifications/initialized':
@@ -156,11 +167,16 @@ function handleNotification(msg) {
         const name = process.env.PISHA_NAME
         if (!NAME_RE.test(name)) { log('auto-login skipped: PISHA_NAME is not a valid name'); return }
         const launch = readLaunch(name)
-        // launch.json is for one start: consumed here, so a later decision of
-        // the user (approved) is what counts next time.
-        if (launch) { try { rmSync(join(stateDirFor(name), 'launch.json'), { force: true }) } catch {} }
+        if (launch) takeLaunch(name)
         const approved = launch ?? readApproved(name)
-        if (!approved) { log(`auto-login as "${name}" skipped: no launch.json and nothing approved for this name yet; use /pisha:login`); return }
+        if (!approved) {
+          const why = launchTooOld(name)
+            ? 'this start of the session is too old to log in by itself (it was opened a while ago): close it and open it again from the dashboard, or use /pisha:login in its terminal'
+            : 'no launch.json and nothing approved for this name yet; use /pisha:login'
+          log(`auto-login as "${name}" skipped: ${why}`)
+          loginProblem(name, why)
+          return
+        }
         // Without launch.json the name is all there is, and a project's
         // settings could have set it: the user confirms.
         void login({
@@ -173,7 +189,7 @@ function handleNotification(msg) {
           mustAsk: !launch,
           relayOff: launch?.relayOff ?? false,
           persona: launch?.persona ?? null,
-        }).catch(err => log(`auto-login as "${name}" failed: ${err.message}`))
+        }).then(() => loginProblem(name, null), err => { log(`auto-login as "${name}" failed: ${err.message}`); loginProblem(name, err.message) })
       }
       return
     case 'notifications/claude/channel/permission_request':

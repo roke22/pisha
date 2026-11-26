@@ -291,7 +291,10 @@ test('what the coordinator did with a delivery: its turn, the tools, what it sen
   const task = (await lead.call('sendMessage', { chat_id: 'trworker', text: 'Fix the broken link in the footer' })).result
   await lead.call('observe', { events: [{ kind: 'tokens', ts: t0 + 90, model: 'claude-opus-5-5', input: 10, cache_read: 1000, cache_write: 50, output: 200, cause: 'message', msg: msg.message_id }] })
   await lead.call('observe', { events: [ev('text', { text: 'Handed the fix to trworker.' }, 100), ev('stop', {}, 200)] })
-  const after = await waitFor(async () => { const x = await d(); return x.status === 'unreported' ? x : null }, 'its turn ended')
+  // Its turn ended to wait for the worker: still being dealt with, not "no report".
+  const after = await waitFor(async () => { const x = await d(); return x.turn_ended_at ? x : null }, 'its turn ended')
+  assert.equal(after.status, 'processing')
+  assert.deepEqual(after.waiting_for, ['trworker'])
   assert.equal(after.turn_started_at, t0)
   assert.equal(after.turn_ended_at, t0 + 200)
   assert.deepEqual(after.trace.tools.map(t => [t.tool, t.ok]), [['mcp__pisha__download_attachment', true], ['Bash', false]])
@@ -307,6 +310,13 @@ test('what the coordinator did with a delivery: its turn, the tools, what it sen
   const reported = await waitFor(async () => { const x = await d(); return x.trace.messages[0].report ? x : null }, 'the worker\'s report')
   assert.deepEqual([reported.trace.messages[0].report.state, reported.trace.messages[0].report.text], ['done', 'Fixed the footer link; PR #53.'])
   assert.deepEqual(reported.worker_tokens, { input: 5, cache_read: 500, cache_write: 0, output: 80, calls: 1 })
+  assert.deepEqual([reported.status, reported.waiting_for], ['processing', []])
+  // The report wakes the coordinator: a turn of its that ends with no word on it leaves it with no report.
+  const t1 = Date.now()
+  await lead.call('observe', { events: [{ kind: 'prompt', ts: t1, channel: true, text: '<channel source="pisha" chat_id="trworker" user="trworker" message_id="1" ts="x">Fixed</channel>' }, { kind: 'stop', ts: t1 + 10 }] })
+  const unreported = await waitFor(async () => { const x = await d(); return x.status === 'unreported' ? x : null }, 'no report after the worker\'s')
+  assert.equal(unreported.turn_ended_at, t0 + 200)
+  assert.equal(unreported.trace.tools.length, 2)
   // Counted in Usage as a webhook's.
   assert.equal((await get('usage')).result.by.cause.find(r => r.cause === 'webhook')?.calls, 1)
 
@@ -321,6 +331,34 @@ test('what the coordinator did with a delivery: its turn, the tools, what it sen
   // (Its trace stays.)
   assert.equal(done.trace.tools.length, 2)
   assert.equal((await deliveries(`webhook=${hook.id}&status=failed`)).length, 1)
+})
+
+test('a delivery that reaches the coordinator in the middle of its turn joins it: neither is left without a report before it ends', async () => {
+  const lead = await session('midlead', 'coordinator')
+  const hook = (await post('webhooks/create', { coordinator: 'midlead', name: 'Mid' })).result
+  const notice = n => `<channel source="pisha" kind="pisha_webhook" user="pisha:webhook" message_id="${n}" attachment_kind="document" ts="x">\nWebhook…\n</channel>`
+  assert.equal((await github(hook.path, hook.secret, { action: 'status_changed' }, { event: 'issues' })).status, 202)
+  const first = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'the first notice')
+  const t0 = Date.now()
+  await lead.call('observe', { events: [{ kind: 'prompt', ts: t0, channel: true, text: notice(first.message_id) }] })
+  assert.equal((await github(hook.path, hook.secret, { action: 'opened' }, { event: 'issues' })).status, 202)
+  const second = await waitFor(async () => (await lead.messages()).find(m => m.from.id === 'pisha:webhook'), 'the second notice')
+  // Claude Code hands it over between two tools: the same turn, now with both.
+  await lead.call('observe', { events: [
+    { kind: 'tool_end', ts: t0 + 10, id: 't1', tool: 'ToolSearch', ok: true, summary: 'x' },
+    { kind: 'prompt', ts: t0 + 20, channel: true, text: notice(second.message_id) },
+  ] })
+  const ids = [first, second].map(m => Number(/delivery #(\d+)/.exec(m.caption)[1]))
+  const both = () => Promise.all(ids.map(id => get(`webhooks/delivery?id=${id}`).then(r => r.result)))
+  await waitFor(async () => (await both()).every(d => d.status === 'processing'), 'both processing')
+  // A worker's report on the way doesn't end it either.
+  await lead.call('observe', { events: [{ kind: 'prompt', ts: t0 + 30, channel: true, text: '<channel source="pisha" chat_id="w" user="w" message_id="999999" ts="x">done</channel>' }] })
+  await sleep(200)
+  assert.deepEqual((await both()).map(d => d.status), ['processing', 'processing'])
+  await lead.call('observe', { events: [{ kind: 'text', ts: t0 + 40, text: 'Both handled.' }, { kind: 'stop', ts: t0 + 50 }] })
+  const ended = await waitFor(async () => { const l = await both(); return l.every(d => d.status === 'unreported') ? l : null }, 'the turn ended')
+  assert.deepEqual(ended.map(d => d.turn_ended_at), [t0 + 50, t0 + 50])
+  assert.equal(ended[0].trace.text, 'Both handled.')
 })
 
 test('Stripe and Standard Webhooks: their secret pasted, the event from the body, and nothing old taken', async () => {

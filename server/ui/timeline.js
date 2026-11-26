@@ -128,6 +128,7 @@ export class Timeline {
     const pct = a.context_pct
     const now = `<section class="tl-now"><h2 class="tq-label">${esc(T.tlNow)}</h2>
       <p class="tl-state"><span class="dot ${st.dot || 'off'}" aria-hidden="true"></span><span${st.title ? ` title="${esc(st.title)}"` : ''}>${esc(st.text)}</span></p>
+      ${st.why ? `<p class="tl-why" data-login-error>${esc(st.why)}</p>` : ''}
       ${pct != null ? `<div class="tl-ctx" title="${esc(T.contextPct(pct))}"><span>${esc(T.svContext)}</span><span class="tl-bar"><i style="width:${pct}%"${pct >= 80 ? ' class="hot"' : ''}></i></span><span>${pct} %</span></div>` : ''}
       ${s.role === 'coordinator' && plan?.tasks.length ? `<div class="tl-plan">${planMeter(plan)}<span>${esc(T.planDone(plan.tasks.filter(t => t.state === 'done').length, plan.tasks.length))}</span></div>` : ''}
       ${task ? `<p class="tl-task"><span class="tq-label">${esc(T.tlTask)}</span>${esc(task.title)}</p>` : ''}

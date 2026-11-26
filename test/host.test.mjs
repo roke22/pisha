@@ -711,6 +711,8 @@ test('permission profiles: a session opens with its team\'s rules, as far as its
     assert.ok(args.includes(`--settings ${file}`), args)
     const rules = JSON.parse(readFileSync(file, 'utf8')).permissions
     assert.ok(rules.allow.includes('Bash(git commit *)') && rules.allow.includes('Bash(make check *)'))
+    // Its own inbox is readable without asking: what other sessions and webhooks attach.
+    assert.equal(rules.allow[0], `Read(/${join(stateDir('pw1'), 'inbox')}/**)`)
     assert.ok(!rules.allow.includes('Bash(*)'))
     assert.deepEqual(rules.deny, ['Bash(git push *)', 'WebFetch(domain:prod.example.com)'])
     assert.equal(lstatSync(file).mode & 0o777, 0o600)
@@ -720,11 +722,11 @@ test('permission profiles: a session opens with its team\'s rules, as far as its
     await waitFor(async () => (await dash('hosts')).result.find(h => h.id === hostId)?.info?.terminals?.some(t => t.id === 'pw1' && t.profile === 'Backend'), { what: 'listed with its profile' })
     assert.ok((await dash('terminals/kill', { host: hostId, term: 'pw1' })).ok)
 
-    // A session of its own: none, whatever its team's (and nothing left from before).
+    // A session of its own: no profile, whatever its team's, only its inbox (and nothing left from before).
     assert.ok((await dash('permissions/assign', { session: 'pw1', profile: 'none' })).ok)
     assert.ok((await dash('terminals/open', { host: hostId, spec: { name: 'pw1', role: 'worker', coordinator: 'pboss', folder: allowed } })).ok)
-    assert.doesNotMatch(await argsOf('pw1'), /--settings|--append-system-prompt-file/)
-    assert.ok(!existsSync(join(stateDir('pw1'), 'permissions.json')))
+    assert.doesNotMatch(await argsOf('pw1'), /--append-system-prompt-file/)
+    assert.deepEqual(JSON.parse(readFileSync(file, 'utf8')).permissions, { allow: [`Read(/${join(stateDir('pw1'), 'inbox')}/**)`], ask: [], deny: [] })
     assert.ok((await dash('terminals/kill', { host: hostId, term: 'pw1' })).ok)
 
     // A machine that takes only what asks or forbids: what it allows is left out.
@@ -732,7 +734,7 @@ test('permission profiles: a session opens with its team\'s rules, as far as its
     assert.ok((await dash('terminals/open', { host: hostId, spec: { name: 'pw2', role: 'worker', coordinator: 'pboss', folder: allowed } })).ok)
     await argsOf('pw2')
     const restricted = JSON.parse(readFileSync(join(stateDir('pw2'), 'permissions.json'), 'utf8')).permissions
-    assert.deepEqual(restricted.allow, [])
+    assert.deepEqual(restricted.allow, [`Read(/${join(stateDir('pw2'), 'inbox')}/**)`])
     assert.deepEqual(restricted.deny, ['Bash(git push *)', 'WebFetch(domain:prod.example.com)'])
     assert.ok((await dash('terminals/kill', { host: hostId, term: 'pw2' })).ok)
     // One that takes none doesn't open a session that follows one.
