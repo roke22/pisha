@@ -18,7 +18,7 @@ import {
 } from './context.js'
 import { tasksStarting, channelIds, stopCheck, inboxAnswered, orderSeen } from './tasks.js'
 import { ping } from './tools.js'
-import { pinApprovers, TOOL_INPUT_KEEP_MS, withdrawIfAmbiguous, pendingPermissions, onTypedPermission, withdrawTyped } from './permissions.js'
+import { pinApprovers, TOOL_INPUT_KEEP_MS, withdrawIfAmbiguous, pendingPermissions, onTypedPermission, withdrawTyped, withdrawAnswered } from './permissions.js'
 import { confirmWithUser } from './mcp.js'
 
 function parseRole(role) {
@@ -134,7 +134,7 @@ export async function login({ name, role, coordinator, staticAccess = false, see
     ...(agent.kind && agent.kind !== 'claude' ? {
       onPermissionAsk: (tool, input) => { if (S === s) void onTypedPermission(s, tool, input) },
       onToolEnd: (tool, input) => { if (S === s) withdrawTyped(s, 'its call already ran or failed (answered at the session)', tool, input) },
-    } : {}),
+    } : { onToolEnd: (tool, input) => { if (S === s) withdrawAnswered(s, tool, input) } }),
   })
   const sockDir = prepareSocketDir(RUN_DIR)
   if (sockDir) s.observer.start(join(sockDir, `${process.ppid}.sock`))

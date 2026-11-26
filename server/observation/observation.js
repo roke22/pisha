@@ -126,7 +126,25 @@ export function createObservation(platform) {
       case 'session_end': a.tool = null; set('ended'); break
     }
     if (a.state !== 'waiting') a.waiting = null
+    // (Its prompt was answered, wherever: no longer with its coordinator.)
+    if (a.relayed_to && ((ev.kind === 'tool_end' && !ev.agent) || ev.kind === 'stop' || ev.kind === 'session_end' || (ev.kind === 'prompt' && !ev.channel))) a.relayed_to = null
   }
+
+  // A worker's permission prompt relayed to its coordinator (the plugin's
+  // "🔐 Permission:" message): the dashboard shows it as being decided there,
+  // until the call runs or the request is withdrawn. (Only what the dashboard
+  // shows: who may answer is the plugin's business.)
+  bus.on('message-stored', row => {
+    const text = String(row?.text ?? '')
+    if (!text.startsWith('🔐 Permission')) return
+    const coordinator = db.prepare("SELECT coordinator FROM identities WHERE name = ? AND role = 'worker'").get(row.from_name)?.coordinator
+    if (!coordinator || coordinator !== row.target) return
+    const a = activityOf(row.from_name)
+    const relayed = text.startsWith('🔐 Permission: ') ? coordinator : null
+    if ((a.relayed_to ?? null) === relayed) return
+    a.relayed_to = relayed
+    bus.emit('session-changed', row.from_name)
+  })
 
   // Per identity: at most 120 observe calls and 3000 events a minute.
   const observeLog = new Map() // name -> [{ t, n }]
