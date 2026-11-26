@@ -177,7 +177,9 @@ On first start it generates two tokens and prints both, only that time (logs are
   | `--tls-cert <file>` `--tls-key <file>` | HTTPS with your own certificate; reloaded when the files change |
   | `--trust-proxy` (`TRUST_PROXY=1`) | Behind a reverse proxy (or tunnel) that sets `X-Forwarded-For`: rate limits use the client's address. Without it every client behind it shares one address, and an address has at most 256 connections open |
 
-  `pisha-server --help` lists every option.
+  | `--config <file>` | Read these settings from a file of `NAME=value` lines (the variable names); the environment wins over it |
+
+  `pisha-server --help` lists every option. To run it as a service on Linux, see [below](#running-it-as-a-service-linux).
 
 ### Serving it on a domain (HTTPS)
 
@@ -206,6 +208,41 @@ Sessions on other machines need to reach the server. **Don't expose it over plai
 **Private network:** on something like Tailscale you can skip TLS with `--all-interfaces`.
 
 Sessions always connect *out* to the server, so their machines open no ports.
+
+### Running it as a service (Linux)
+
+`pisha-server setup` installs the server as a systemd service, asking what it needs. Install the command first (a service can't run it from npx's cache):
+
+```bash
+npm install -g pisha-server
+sudo env "PATH=$PATH" pisha-server setup     # a system service; without sudo, one of your user
+```
+
+It asks:
+
+1. **How people reach it:** your domain with built-in HTTPS (ports 80 and 443), behind a reverse proxy you already have (it listens on `127.0.0.1` and you give it the public address), or only from that machine.
+2. **Which user runs it** (as root): a user of its own, `pisha`, created if missing (recommended: it only reaches its own data); you, the user that ran `sudo` (it can use a Node installed in your home with nvm, and your `~/.pisha`); or another one. Never root. If that user can't run the `node` you used (one installed in root's home, say), it says so before changing anything.
+3. **Where its data goes:** `/var/lib/pisha` for the `pisha` user, `~/.pisha` for anyone else. If it finds the data of a server that ran before (`~/.pisha` of root or of whoever ran `sudo`), it offers to copy it, so owners, machines and teams come along; the old folder is left as it was.
+
+Before it changes anything it stops if a server started by hand is still running on that data, or something else holds its ports, and it lists what it will do. Then it writes the settings and the unit, enables and starts the service, waits until it answers (with a domain, until it has its certificate, or says why not) and shows the address, the server token (if it is new), and where everything is:
+
+| | As root | As another user |
+|---|---|---|
+| Settings | `/etc/pisha/pisha.env` | `~/.config/pisha/pisha.env` |
+| Service | `/etc/systemd/system/pisha.service` | `~/.config/systemd/user/pisha.service` |
+| Runs as | the user you chose; ports 80 and 443 with `CAP_NET_BIND_SERVICE`, nothing else | you; with `loginctl enable-linger`, also while you are logged out (it says if it couldn't turn it on) |
+
+The settings file holds the same environment variables as the options above (`PISHA_DOMAIN`, `PUBLIC_URL`, `PORT`, `DATA_DIR`…). Edit it and restart, or run `setup` again: it offers what is there as each answer, and keeps the variables it doesn't ask about. `--dry-run` shows what it would write; `--yes` with `--domain`, `--public-url` or `--local` (and `--user`, `--data-dir`, `--port`, `--acme-email`, `--fresh`) asks nothing. `pisha-server setup --help` lists them.
+
+Then:
+
+```bash
+pisha-server service status          # also start, stop, restart, logs
+pisha-server service remove          # it no longer starts by itself; its settings and data are kept
+npm install -g pisha-server@latest && pisha-server service restart     # updating (with sudo for a system service)
+```
+
+Without systemd (or not as a service), `pisha-server --config <file>` reads the same settings file; variables already set in the environment win over it.
 
 ### 2. Install the plugin (once per machine)
 

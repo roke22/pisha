@@ -29,6 +29,14 @@ pisha-server --domain pisha.example.com --acme-email you@example.com
 
 It gets and renews its own certificate (Let's Encrypt). `pisha-server --help` lists every option.
 
+## As a service (Linux)
+
+```bash
+sudo env "PATH=$PATH" pisha-server setup
+```
+
+It asks for the domain (or your reverse proxy), the user that runs it and where its data goes, then installs and starts a systemd service. Run it again to change anything; `pisha-server service status|restart|logs|remove` for the rest.
+
 ## With Docker
 
 ```bash

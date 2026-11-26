@@ -160,6 +160,15 @@ pisha-server --domain pisha.example.com --acme-email you@example.com
 
 It gets and renews its HTTPS certificate by itself, and the dashboard is at `https://pisha.example.com`. (On Linux, ports 80 and 443 need privileges: run it with `sudo`, or use the Docker image with `-p 80:80 -p 443:443 -e PISHA_DOMAIN=pisha.example.com`.)
 
+**As a service on a Linux server,** let it set itself up:
+
+```bash
+npm install -g pisha-server
+sudo env "PATH=$PATH" pisha-server setup
+```
+
+It asks how people reach it (your domain, your reverse proxy, or only that machine), which user runs it (one of its own, `pisha`, by default) and where its data goes, brings along the data of a server you had started by hand, and installs a systemd service that starts with the machine. Run it again to change any of that; `pisha-server service status|restart|logs|remove` for the rest. Without `sudo`, it installs a service of your user instead (behind a proxy, or local).
+
 ## 2. Add your computers
 
 In the dashboard, open **Machines → Add machine** (or the **+** next to *Machines* in the sidebar). The page walks you through it: choose the computer's system (Linux, macOS or Windows) and the agents to install there (Claude Code, and Codex CLI or Grok CLI if you want them), and run the single command it shows on that computer. It installs everything it needs and connects it to your dashboard; the page says when it has connected and lets you choose its folders right there.

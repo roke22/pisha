@@ -175,7 +175,9 @@ Solo necesita Node.js 22.13 o posterior; no tiene dependencias. La primera vez g
   | `--tls-cert <fichero>` `--tls-key <fichero>` | HTTPS con tu propio certificado; se recarga si cambian los ficheros |
   | `--trust-proxy` (`TRUST_PROXY=1`) | Detrás de un proxy inverso (o túnel) que pone `X-Forwarded-For`: los límites de frecuencia usan la dirección del cliente. Sin esto, todos los clientes de detrás comparten una dirección, y una dirección tiene como mucho 256 conexiones abiertas |
 
-  `pisha-server --help` muestra todas las opciones.
+  | `--config <fichero>` | Lee estos ajustes de un fichero de líneas `NOMBRE=valor` (los nombres de las variables); lo que ya esté en el entorno manda sobre él |
+
+  `pisha-server --help` muestra todas las opciones. Para ejecutarlo como servicio en Linux, mira [más abajo](#ejecutarlo-como-servicio-linux).
 
 ### Publicarlo con un dominio (HTTPS)
 
@@ -204,6 +206,41 @@ Las sesiones de otras máquinas tienen que poder llegar al servidor. **No lo exp
 **Red privada:** en algo como Tailscale puedes prescindir de TLS con `--all-interfaces`.
 
 Las sesiones siempre se conectan *hacia* el servidor, así que sus máquinas no abren puertos.
+
+### Ejecutarlo como servicio (Linux)
+
+`pisha-server setup` instala el servidor como un servicio de systemd, preguntando lo que necesita. Instala antes el comando (un servicio no puede arrancarlo desde la caché de npx):
+
+```bash
+npm install -g pisha-server
+sudo env "PATH=$PATH" pisha-server setup     # un servicio del sistema; sin sudo, uno de tu usuario
+```
+
+Pregunta:
+
+1. **Cómo se llega a él:** tu dominio con HTTPS integrado (puertos 80 y 443), detrás de un proxy inverso que ya tengas (escucha en `127.0.0.1` y le das la dirección pública), o solo desde esa máquina.
+2. **Qué usuario lo ejecuta** (como root): uno propio, `pisha`, que crea si no existe (lo recomendado: solo llega a sus propios datos); tú, el usuario que lanzó `sudo` (puede usar un Node instalado en tu carpeta personal con nvm, y tu `~/.pisha`); u otro. Nunca root. Si ese usuario no puede ejecutar el `node` que usaste (uno instalado en la carpeta de root, por ejemplo), lo dice antes de cambiar nada.
+3. **Dónde van sus datos:** `/var/lib/pisha` para el usuario `pisha`, `~/.pisha` para cualquier otro. Si encuentra los datos de un servidor que funcionó antes (el `~/.pisha` de root o de quien lanzó `sudo`), ofrece copiarlos, así que propietarios, máquinas y equipos se vienen con él; la carpeta antigua queda como estaba.
+
+Antes de cambiar nada se detiene si un servidor arrancado a mano sigue funcionando con esos datos, o si otra cosa ocupa sus puertos, y enumera lo que va a hacer. Luego escribe los ajustes y la unidad, activa y arranca el servicio, espera a que responda (con un dominio, a que tenga su certificado, o dice por qué no) y muestra la dirección, el token del servidor (si es nuevo) y dónde está cada cosa:
+
+| | Como root | Como otro usuario |
+|---|---|---|
+| Ajustes | `/etc/pisha/pisha.env` | `~/.config/pisha/pisha.env` |
+| Servicio | `/etc/systemd/system/pisha.service` | `~/.config/systemd/user/pisha.service` |
+| Se ejecuta como | el usuario que elegiste; los puertos 80 y 443 con `CAP_NET_BIND_SERVICE`, nada más | tú; con `loginctl enable-linger`, también sin tu sesión abierta (avisa si no pudo activarlo) |
+
+El fichero de ajustes lleva las mismas variables de entorno que las opciones de arriba (`PISHA_DOMAIN`, `PUBLIC_URL`, `PORT`, `DATA_DIR`…). Edítalo y reinicia, o vuelve a ejecutar `setup`: ofrece lo que hay como cada respuesta y conserva las variables por las que no pregunta. `--dry-run` muestra lo que escribiría; `--yes` con `--domain`, `--public-url` o `--local` (y `--user`, `--data-dir`, `--port`, `--acme-email`, `--fresh`) no pregunta nada. `pisha-server setup --help` las enumera.
+
+Después:
+
+```bash
+pisha-server service status          # también start, stop, restart, logs
+pisha-server service remove          # deja de arrancar solo; sus ajustes y sus datos se quedan
+npm install -g pisha-server@latest && pisha-server service restart     # actualizar (con sudo para un servicio del sistema)
+```
+
+Sin systemd (o sin servicio), `pisha-server --config <fichero>` lee el mismo fichero de ajustes; las variables que ya estén en el entorno mandan sobre él.
 
 ### 2. Instalar el plugin (una vez por máquina)
 

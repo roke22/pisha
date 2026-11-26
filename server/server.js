@@ -21,10 +21,33 @@
 // This file only starts what is the whole server's. server/companies.js keeps
 // the companies, and server/company.js joins the parts of one.
 
-import { cleanupServerLimits, guarded, logError, openServerCredentials, startListening } from './platform/index.js'
-import { createCompanies } from './companies.js'
-import { createAccounts } from './accounts/index.js'
-import { createRoutes } from './routes.js'
+// "pisha-server setup" and "pisha-server service": setting it up as a
+// service. They have options of their own, and must not open the server's data.
+const command = process.argv[2]
+if (command === 'setup' || command === 'service') {
+  const { runCommand } = await import('./setup/index.js')
+  process.exit(await runCommand(command, process.argv.slice(3)))
+}
+
+// --config <file>: the settings as NAME=value lines, read into the environment
+// before anything reads it (what is already in the environment wins).
+{
+  const args = process.argv.slice(2)
+  const at = args.findIndex(a => a === '--config' || a.startsWith('--config='))
+  const file = at < 0 ? '' : args[at].startsWith('--config=') ? args[at].slice(9) : args[at + 1] ?? ''
+  if (at >= 0) {
+    try { process.loadEnvFile(file) } catch (err) {
+      process.stderr.write(`pisha-server: cannot read the settings in "${file}": ${err.code === 'ENOENT' ? 'no such file' : err.message}\n`)
+      process.exit(2)
+    }
+  }
+}
+
+// (Loaded only now: they read their settings as they load.)
+const { cleanupServerLimits, guarded, logError, openServerCredentials, startListening } = await import('./platform/index.js')
+const { createCompanies } = await import('./companies.js')
+const { createAccounts } = await import('./accounts/index.js')
+const { createRoutes } = await import('./routes.js')
 
 const credentials = openServerCredentials()
 const companies = createCompanies(credentials)
