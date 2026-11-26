@@ -40,8 +40,9 @@ const VERIFY = ['hmac-sha256', 'token', 'stripe', 'standard']
 const SECRET_FROM_SERVICE = ['stripe', 'standard'] // (verify kinds whose secret the service makes)
 
 // What a delivery can end as. The first ones were taken; the rest were not.
-// (processing: its coordinator's turn on it began; unreported: that turn ended
-// with no webhook_result; done, ignored, failed: what the coordinator said.)
+// (processing: its coordinator's turn on it began, or ended to wait for a
+// worker's report; unreported: it ended with no webhook_result and no worker to
+// wait for; done, ignored, failed: what the coordinator said.)
 const TAKEN = ['queued', 'delivered', 'processing', 'unreported', 'done', 'ignored', 'failed', 'filtered', 'ping', 'undelivered', 'no_coordinator']
 export const OUTCOMES = ['done', 'ignored', 'failed']
 const MAX_SUMMARY = 4000
@@ -196,6 +197,12 @@ export function createWebhooks(platform, { sessions, messaging }) {
       last_delivery: last ?? null,
     }
   }
+  // The workers it handed a task for it to that have not reported yet.
+  function waitingFor(json) {
+    let t
+    try { t = JSON.parse(json ?? 'null') } catch { return [] }
+    return [...new Set((t?.messages ?? []).filter(m => m.task && !m.report).map(m => m.to))]
+  }
   function deliveryView(r, { full = false } = {}) {
     const v = {
       id: r.id, webhook_id: r.webhook_id, webhook_name: r.webhook_name ?? null, received_at: r.received_at, ip: r.ip, status: r.status, reason: r.reason ?? null,
@@ -203,6 +210,7 @@ export function createWebhooks(platform, { sessions, messaging }) {
       coordinator: r.coordinator ?? null, message_id: r.message_id ?? null, delivered_at: r.delivered_at ?? null,
       turn_started_at: r.turn_started_at ?? null, turn_ended_at: r.turn_ended_at ?? null,
       outcome: r.outcome ?? null, summary: r.summary ?? null, reported_at: r.reported_at ?? null,
+      waiting_for: r.status === 'processing' && r.turn_ended_at ? waitingFor(r.trace) : [],
     }
     if (!full) return v
     return {
@@ -608,6 +616,12 @@ export function createWebhooks(platform, { sessions, messaging }) {
     for (const d of list) setDelivery(d.id, { turn_started_at: ts, turn_ended_at: null, ...(d.status === 'delivered' ? { status: 'processing' } : {}) })
   }
 
+  function joinTurn(name, open, list, ts) {
+    const ids = list.map(d => d.id).filter(id => !open.ids.includes(id))
+    openTurns.set(name, { ids: [...open.ids, ...ids], start: open.start })
+    for (const d of list) if (ids.includes(d.id)) setDelivery(d.id, { turn_started_at: ts, turn_ended_at: null, ...(d.status === 'delivered' ? { status: 'processing' } : {}) })
+  }
+
   function endTurn(name, ts) {
     // (Its start, also from before the server restarted.)
     let open = openTurns.get(name)
@@ -642,7 +656,19 @@ export function createWebhooks(platform, { sessions, messaging }) {
       const d = db.prepare('SELECT status FROM webhook_deliveries WHERE id = ?').get(id)
       if (!d) continue
       for (const m of messages.filter(x => x.task)) db.prepare('INSERT OR IGNORE INTO webhook_tasks (message_id, delivery_id, worker) VALUES (?, ?, ?)').run(m.id, id, m.to)
-      setDelivery(id, { turn_ended_at: ts, trace, ...(d.status === 'processing' ? { status: 'unreported' } : {}) })
+      // (Ended to wait for a worker it handed it to: it is still being dealt with.)
+      setDelivery(id, { turn_ended_at: ts, trace, ...(d.status === 'processing' && !waitingFor(trace).length ? { status: 'unreported' } : {}) })
+    }
+  }
+
+  // Its workers have reported on what it handed out for a delivery, and a turn
+  // of its ended after that with no word on it: it has no report.
+  function settleWaiting(name, ts) {
+    for (const d of db.prepare("SELECT id, trace FROM webhook_deliveries WHERE coordinator = ? AND status = 'processing' AND turn_ended_at IS NOT NULL").all(name)) {
+      let t
+      try { t = JSON.parse(d.trace ?? 'null') } catch { continue }
+      const tasks = (t?.messages ?? []).filter(m => m.task)
+      if (tasks.length && tasks.every(m => m.report && m.report.at <= ts)) setDelivery(d.id, { status: 'unreported' })
     }
   }
 
@@ -679,12 +705,17 @@ export function createWebhooks(platform, { sessions, messaging }) {
     try {
       for (const ev of events) {
         if (ev.kind === 'prompt') {
-          // (A new turn ends the one before, if its Stop never came.)
-          if (openTurns.has(name)) endTurn(name, ev.ts)
           const msg = ev.channel ? webhookMessageOf(ev.text) : null
           const list = msg ? byMessage(name, msg) : []
+          const open = openTurns.get(name)
+          // A channel message (another delivery, a worker's report) can reach
+          // the session in the middle of its turn: Claude Code hands it over
+          // between two tools, and the turn goes on, now with it too.
+          if (open && ev.channel) { if (list.length) joinTurn(name, open, list, ev.ts); continue }
+          // (What the user types starts a new turn: it ends the one before, if its Stop never came.)
+          if (open) endTurn(name, ev.ts)
           if (list.length) startTurn(name, list, ev.ts)
-        } else if (ev.kind === 'stop') endTurn(name, ev.ts)
+        } else if (ev.kind === 'stop') { endTurn(name, ev.ts); settleWaiting(name, ev.ts) }
       }
     } catch (err) { log(`webhooks: following ${name}'s turn: ${err.message}`) }
   })

@@ -669,6 +669,23 @@ test('adding a machine: one page, from its command to the machine connected and 
   await expect(box).toContainText('studio is connected')
   await expect(box.locator('.nt-sec.later')).toHaveCount(0)
   await expect(box.locator('.am-folders')).toContainText('/srv/squad')
+  // Done: "+" again is for another machine, not this one's used command.
+  await page.evaluate(() => { location.hash = '#/hosts' })
+  await page.locator('#addHostBtn').click()
+  await expect(box.locator('[name=amname]')).toHaveValue('')
+  await expect(box.locator('.cmd')).toHaveCount(0)
+  await expect(box.locator('.nt-sec.later')).toHaveCount(3)
+})
+
+test('a session its plugin refused to log in: the dashboard says why, not just "disconnected"', async ({ page }) => {
+  await signIn(page)
+  const m = await startMachine(server, 'refusing', { id: 'refusing-x', role: 'worker' })
+  const opened = await server.call('api/terminals/open', { host: m.id, spec: { name: 'refuser', role: 'solo', folder: '/srv/squad' } })
+  expect(opened).toBeTruthy()
+  m.patchTerminal('refuser', { login_error: 'NODE_EXTRA_CA_CERTS (/opt/ca.crt) would be trusted for this server\'s certificate. If it is yours, add PISHA_EXTRA_CA=/opt/ca.crt' })
+  await page.goto(`${server.url}/#/s/refuser/chat`)
+  await expect(page.locator('[data-login-error]')).toContainText('PISHA_EXTRA_CA=/opt/ca.crt')
+  await expect(page.locator('#topSub')).toContainText('Not connected: Pisha refused to log in')
 })
 
 test('adding a machine for a company: its command says which, and it can have its own system user', async ({ page }) => {

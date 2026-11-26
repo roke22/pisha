@@ -2,10 +2,11 @@
 // (the same shape as the Telegram plugin).
 
 import { readFileSync, renameSync, mkdirSync, writeFileSync, statSync, existsSync, rmSync, lstatSync } from 'node:fs'
+import { execFileSync } from 'node:child_process'
 import { randomBytes } from 'node:crypto'
 import { join } from 'node:path'
 import { agent } from './agent.js'
-import { NAME_RE, log, stateDirFor, GROUP_ID_RE } from './settings.js'
+import { NAME_RE, log, stateDirFor, GROUP_ID_RE, PS_BIN } from './settings.js'
 import { S, active } from './session.js'
 import { call, ApiError } from './client.js'
 import { checkCoordinator } from './inbound.js'
@@ -165,26 +166,72 @@ export function writeApproved(s) {
 // And only for the process given its random value: a project's settings can set
 // PISHA_NAME to any session's, but can't know what this one's start will be.
 const LAUNCH_MAX_AGE_MS = 15 * 60_000
+function parseLaunch(l, name) {
+  if (l.name !== name || (l.role !== 'coordinator' && l.role !== 'worker' && l.role !== 'solo')) return null
+  return {
+    role: l.role,
+    coordinator: l.role === 'worker' && NAME_RE.test(String(l.coordinator)) ? l.coordinator : null,
+    allowFrom: Array.isArray(l.allow_from) ? l.allow_from.filter(n => NAME_RE.test(String(n))) : [],
+    staticAccess: l.access_mode === 'static',
+    relayOff: l.permission_relay === false, // the machine doesn't allow remote permission answers
+    persona: l.role === 'solo' ? null : launchPersona(l.persona),
+    // The agent it runs, if not Claude Code.
+    agent: l.agent === 'codex' || l.agent === 'grok' ? l.agent : null,
+  }
+}
+
+// The process this plugin runs under (Claude Code), as its pid and the time
+// it started: a pid can be reused, the pair can't.
+function parentProcess() {
+  try {
+    const started = execFileSync(PS_BIN, ['-o', 'lstart=', '-p', String(process.ppid)], { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'], timeout: 3000 }).trim()
+    return started ? { pid: process.ppid, started } : null
+  } catch { return null }
+}
+
+// Once taken, a launch.json is kept as launch-used.json with the process
+// that took it: the plugin started again inside that same Claude Code (/mcp,
+// reconnect) logs in as that start said, however long ago it was. Any other
+// process never does.
 export function readLaunch(name) {
   if (!NAME_RE.test(String(name ?? ''))) return null
+  const dir = stateDirFor(name)
+  try {
+    const file = join(dir, 'launch.json')
+    const age = Date.now() - statSync(file).mtimeMs
+    if (age <= LAUNCH_MAX_AGE_MS && age >= -60_000) { // (not too old, nor dated in the future)
+      const l = JSON.parse(readFileSync(file, 'utf8'))
+      if (l?.start && l.start === process.env.PISHA_LAUNCH_START) return parseLaunch(l, name)
+    }
+  } catch {}
+  try {
+    const u = JSON.parse(readFileSync(join(dir, 'launch-used.json'), 'utf8'))
+    if (!u?.start || u.start !== process.env.PISHA_LAUNCH_START || !u.parent) return null
+    const parent = parentProcess()
+    if (!parent || u.parent.pid !== parent.pid || u.parent.started !== parent.started) return null
+    return parseLaunch(u, name)
+  } catch { return null }
+}
+
+// Whether this start left a launch.json that is now too old to be taken.
+export function launchTooOld(name) {
   try {
     const file = join(stateDirFor(name), 'launch.json')
-    const age = Date.now() - statSync(file).mtimeMs
-    if (age > LAUNCH_MAX_AGE_MS || age < -60_000) return null // too old, or dated in the future
+    return Date.now() - statSync(file).mtimeMs > LAUNCH_MAX_AGE_MS && JSON.parse(readFileSync(file, 'utf8'))?.start === process.env.PISHA_LAUNCH_START
+  } catch { return false }
+}
+
+// launch.json is for one start: taken here, a later start (another process)
+// can't use it, and a later decision of the user (approved) is what counts then.
+export function takeLaunch(name) {
+  const dir = stateDirFor(name)
+  const file = join(dir, 'launch.json')
+  try {
     const l = JSON.parse(readFileSync(file, 'utf8'))
-    if (!l?.start || l.start !== process.env.PISHA_LAUNCH_START) return null
-    if (l.name !== name || (l.role !== 'coordinator' && l.role !== 'worker' && l.role !== 'solo')) return null
-    return {
-      role: l.role,
-      coordinator: l.role === 'worker' && NAME_RE.test(String(l.coordinator)) ? l.coordinator : null,
-      allowFrom: Array.isArray(l.allow_from) ? l.allow_from.filter(n => NAME_RE.test(String(n))) : [],
-      staticAccess: l.access_mode === 'static',
-      relayOff: l.permission_relay === false, // the machine doesn't allow remote permission answers
-      persona: l.role === 'solo' ? null : launchPersona(l.persona),
-      // The agent it runs, if not Claude Code.
-      agent: l.agent === 'codex' || l.agent === 'grok' ? l.agent : null,
-    }
-  } catch { return null }
+    const parent = parentProcess()
+    if (l?.start === process.env.PISHA_LAUNCH_START && parent) writePrivateFile(join(dir, 'launch-used.json'), JSON.stringify({ ...l, parent }) + '\n')
+  } catch {}
+  try { rmSync(file, { force: true }) } catch {}
 }
 
 // Coordinators of other squads a coordinator works with: the ones the user

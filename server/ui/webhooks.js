@@ -337,7 +337,8 @@ function reasonText(d) {
   if (d.event === 'pisha_test') return T.whWhyTest
   return d.reason ?? ''
 }
-const resultLine = d => d.summary || (['processing', 'unreported'].includes(d.status) ? T.whWhy[d.status] : d.status === 'delivered' ? [T.whDeliveredTo(d.coordinator ?? ''), d.reason ? reasonText(d) : ''].filter(Boolean).join(' · ') : reasonText(d))
+const waiting = d => d.waiting_for?.length ? T.whWaitingFor(d.waiting_for.join(', ')) : ''
+const resultLine = d => d.summary || waiting(d) || (['processing', 'unreported'].includes(d.status) ? T.whWhy[d.status] : d.status === 'delivered' ? [T.whDeliveredTo(d.coordinator ?? ''), d.reason ? reasonText(d) : ''].filter(Boolean).join(' · ') : reasonText(d))
 
 // One entry, whole: what came, as it came.
 async function deliveryDialog(id) {
@@ -383,7 +384,7 @@ function turnHtml(d) {
   const took = d.turn_started_at && d.turn_ended_at ? T.whTook(Math.max(1, Math.round((d.turn_ended_at - d.turn_started_at) / 1000))) : d.turn_started_at ? T.whStillOn : ''
   const report = d.outcome
     ? `<p class="wh-report"><span class="tag ${STATUS_TAG[d.outcome]}">${esc(T.whStatus[d.outcome])}</span>${d.summary ? ` ${esc(d.summary)}` : ''}<small>${esc(ago(d.reported_at))}</small></p>`
-    : `<p class="dim-note">${esc(d.turn_started_at ? T.whNoReport : T.whNotYet)}</p>`
+    : `<p class="dim-note">${esc(waiting(d) || (d.turn_started_at ? T.whNoReport : T.whNotYet))}</p>`
   const tools = t?.tools?.length ? `<details class="wh-trace-part"><summary>${esc(T.whTools(t.tools_total ?? t.tools.length))}</summary><ol class="wh-tools">${t.tools.map(x => `<li class="${x.ok ? '' : 'bad'}"><code>${esc(x.tool)}</code> <span>${esc(x.summary)}</span></li>`).join('')}</ol></details>` : ''
   const REPORT_TAG = { done: 'ok', blocked: 'err', failed: 'err', question: 'warn' }
   const reportOf = m => (m.report

@@ -10,7 +10,7 @@ export { S, setSession, active, shuttingDown, shutdown } from './session.js'
 export { openSendable } from './sendable.js'
 export {
   linkedCoordinators, readApproved, listedApprovers, prepareAccess, writeApproved, personaLabel,
-  loadAccess, launchPersona, assertAllowedChat, assertPeerIsPinned, readAllowPins, readLaunch, writePrivateFile,
+  loadAccess, launchPersona, assertAllowedChat, assertPeerIsPinned, readAllowPins, readLaunch, takeLaunch, launchTooOld, writePrivateFile,
 } from './access.js'
 export { call, claimPidFile, releasePidFile, nameOrQ, ApiError, uploadFile, downloadFile } from './client.js'
 export { readPeerKey } from './signed.js'

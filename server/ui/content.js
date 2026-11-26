@@ -1,6 +1,6 @@
 import { store } from './dom.js'
 import { T, COLLATOR } from './i18n.js'
-import { sessions, companyPref } from './state.js'
+import { sessions, hosts, companyPref } from './state.js'
 import { esc, dur, now } from './format.js'
 import { nowPhrase } from './doing.js'
 
@@ -105,12 +105,24 @@ function md(src) {
 // The tool and its exact arguments, for a tooltip.
 const toolLine = t => [t?.name, t?.summary].filter(Boolean).join(' · ')
 
+// Why the plugin of a session its machine runs didn't log in, as the machine
+// read it (only on the machine the server opened it on).
+export function loginError(s) {
+  const h = s?.host_id ? hosts.get(s.host_id) : null
+  return (h?.online && h.info?.terminals?.find(t => t.id === s.name)?.login_error) || null
+}
+
 // session status (sidebar, pane headers, status bars). title: the detail
 // behind text, when there is more (the command it runs).
 export function status(s) {
   if (!s) return { dot: '', text: '' }
   const a = s.activity ?? {}
-  if (!s.online) return { dot: '', text: T.offline(s.last_seen_at ? dur(now() - s.last_seen_at * 1000) : '—') }
+  if (!s.online) {
+    // Running on its machine, but its plugin said why it didn't log in.
+    const why = loginError(s)
+    if (why) return { dot: 'err', text: T.notJoined, title: why, why }
+    return { dot: '', text: T.offline(s.last_seen_at ? dur(now() - s.last_seen_at * 1000) : '—') }
+  }
   switch (a.state) {
     // (A phrase, not the command: the command itself is in the tooltip.)
     case 'tool': return { dot: 'ok pulse', text: `${nowPhrase(a.tool)} · ${dur(now() - (a.tool?.since ?? now()))}`, title: toolLine(a.tool) }

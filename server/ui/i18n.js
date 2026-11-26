@@ -14,6 +14,8 @@ export const COLLATOR = new Intl.Collator(LOCALE, { numeric: true })
 const I18N = {
   en: {
     offline: ago => `Disconnected · seen ${ago} ago`,
+    notJoined: 'Not connected: Pisha refused to log in',
+    svNotJoined: 'Why it is not connected',
     working: d => `Working · ${d}`,
     waitingTool: what => `Waiting for permission · ${what}`,
     waitingInput: w => `Waiting: ${w || 'your answer'}`,
@@ -604,6 +606,7 @@ const I18N = {
     whBatchTag: n => `Gathers ${n} s`,
     whTogether: list => `Given in one notice with ${list}: what its coordinator did is theirs too.`,
     whNoWorkerReport: 'No report from the worker yet',
+    whWaitingFor: names => `Waiting for ${names}'s report`,
     whWorkerTokens: (n, calls) => `Its workers: ${n} tokens in ${calls} call${calls === 1 ? '' : 's'}`,
     whWhatItDid: 'What its coordinator did',
     whNoReport: 'It has not said what came of it (webhook_result).',
@@ -1192,6 +1195,8 @@ const I18N = {
   },
   es: {
     offline: ago => `Desconectada · vista hace ${ago}`,
+    notJoined: 'Sin conectar: Pisha no pudo iniciar sesión',
+    svNotJoined: 'Por qué no está conectada',
     working: d => `Trabajando · ${d}`,
     waitingTool: what => `Esperando permiso · ${what}`,
     waitingInput: w => `Esperando: ${w || 'tu respuesta'}`,
@@ -1782,6 +1787,7 @@ const I18N = {
     whBatchTag: n => `Agrupa ${n} s`,
     whTogether: list => `Entregado en un solo aviso con ${list}: lo que hizo su coordinador también es de ellas.`,
     whNoWorkerReport: 'El worker aún no ha informado',
+    whWaitingFor: names => `Esperando el informe de ${names}`,
     whWorkerTokens: (n, calls) => `Sus workers: ${n} tokens en ${calls} llamada${calls === 1 ? '' : 's'}`,
     whWhatItDid: 'Qué hizo su coordinador',
     whNoReport: 'No ha dicho qué salió de ello (webhook_result).',

@@ -86,6 +86,13 @@ export function renderAddMachine() {
 export const refreshAddMachine = () => { if (currentRoute().view === 'addmachine' && !$('addmachine').hidden) renderAddMachine() }
 // Done with it (a session or team opened from it, or cancelled): the next visit starts afresh.
 export const forgetAddMachine = () => { clearTimeout(draft?.slowTimer); draft = null }
+// Coming to add a machine (the sidebar's "+", the palette, a link): one
+// already added, or a code that expired unused, isn't shown again as if it
+// were the new one. Halfway, it is kept. (Before the router draws the page:
+// this module's listener was added first.)
+window.addEventListener('hashchange', e => {
+  if (location.hash === '#/hosts/new' && !/#\/hosts\/new$/.test(e.oldURL) && draft && (draft.joined || expired())) forgetAddMachine()
+})
 
 async function generate() {
   draft.generating = true

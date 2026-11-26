@@ -2,7 +2,7 @@ import { $ } from './dom.js'
 import { T, LOCALE } from './i18n.js'
 import { state, sessions, hosts } from './state.js'
 import { esc, kfmt } from './format.js'
-import { sortedSessions, status, agentMark } from './content.js'
+import { sortedSessions, status, agentMark, loginError } from './content.js'
 import { setHtml } from './nav.js'
 import { currentRoute } from './router.js'
 import { permissionsSection } from './permissions.js'
@@ -34,7 +34,10 @@ export function renderSessionAside() {
     [T.svPersona, s.persona?.name ? esc(s.persona.name) : ''],
     [T.svOpened, s.created_at ? esc(when(s.created_at * 1000)) : ''],
   ].filter(f => f[1])
-  setHtml(box, `${members.length ? `<section><h2 class="tq-label">${esc(T.svTeam)}</h2><ul class="sv-members">${members.map(m => member(m, s.name)).join('')}</ul><a class="ibx-link sv-small" href="#/q/${encodeURIComponent(team)}">${esc(T.svSeeTeam)}</a></section>` : ''}
+  // Running on its machine, but its plugin refused to log in: why, first.
+  const why = !s.online ? loginError(s) : null
+  setHtml(box, `${why ? `<section><h2 class="tq-label">${esc(T.svNotJoined)}</h2><p class="tl-why" data-login-error>${esc(why)}</p></section>` : ''}
+    ${members.length ? `<section><h2 class="tq-label">${esc(T.svTeam)}</h2><ul class="sv-members">${members.map(m => member(m, s.name)).join('')}</ul><a class="ibx-link sv-small" href="#/q/${encodeURIComponent(team)}">${esc(T.svSeeTeam)}</a></section>` : ''}
     ${facts.length ? `<section><h2 class="tq-label">${esc(T.svDetails)}</h2><dl class="ibx-facts sv-facts">${facts.map(([k, v]) => `<dt>${esc(k)}</dt><dd>${v}</dd>`).join('')}</dl></section>` : ''}
     ${s.role !== 'solo' && s.opened_role !== 'solo' ? permissionsSection({ session: s.name }) : ''}
     ${a.observe === 'off' ? `<p class="sv-small sv-quiet">${esc(T.svNotObserved)}</p>` : ''}`)
