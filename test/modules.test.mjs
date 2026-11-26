@@ -13,7 +13,9 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..')
 // What each module of the server may use. Whatever is not listed is refused,
 // so a new module has to say where it fits.
 const SERVER_MODULES = {
-  platform: [],
+  addresses: [],
+  platform: ['addresses'],
+  setup: ['addresses'],
   accounts: ['platform'],
   sessions: ['platform'],
   messaging: ['platform', 'sessions'],

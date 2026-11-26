@@ -3,6 +3,7 @@ import { LETS_ENCRYPT_STAGING, LETS_ENCRYPT } from './acme.js'
 import { join } from 'node:path'
 import { readFileSync, existsSync } from 'node:fs'
 import { homedir } from 'node:os'
+import { isDomain, isPublicUrl } from '../addresses/index.js'
 
 // Command-line flags win over environment variables.
 //
@@ -14,6 +15,7 @@ import { homedir } from 'node:os'
 //                        the dashboard's terminal accepts it as its Origin
 //   --trust-proxy        behind a reverse proxy: take the client's address from X-Forwarded-For
 //   --data-dir <path>    default ~/.pisha (or ./data, if it already has a server's data)
+//   --config <file>      read these settings (as environment variables) from a file: see server.js
 //
 // HTTPS without a reverse proxy:
 //   --domain <name>      get and renew a Let's Encrypt certificate automatically (needs ports 80 and 443)
@@ -40,6 +42,7 @@ const { values: ARGS } = (() => {
         'http-port': { type: 'string' },
         'trust-proxy': { type: 'boolean' },
         'allow-token-api': { type: 'boolean' },
+        config: { type: 'string' },   // (read by server.js, before this)
         help: { type: 'boolean', short: 'h' },
       },
     })
@@ -50,13 +53,17 @@ const { values: ARGS } = (() => {
 })()
 
 if (ARGS.help) {
-  process.stdout.write(`Usage: node server.js [options]
+  process.stdout.write(`Usage: pisha-server [options]
+       pisha-server setup       Set it up as a service, step by step (domain, user, data)
+       pisha-server service     The service: status, start, stop, restart, logs, remove
 
   --host <ip>          Interface to listen on (default 127.0.0.1: this machine only). Env: HOST
   --all-interfaces     Listen on every IP of the machine (same as --host 0.0.0.0)
   --port <n>           Port (default 7787). Env: PORT
   --public-url <url>   Public address, e.g. https://pisha.example.com. Env: PUBLIC_URL
   --data-dir <path>    Database and files (default ~/.pisha, or ./data if it already has a server's). Env: DATA_DIR
+  --config <file>      Read the settings from a file of NAME=value lines (the Env names below).
+                       Variables already set in the environment win over the file.
 
 HTTPS, built in (no reverse proxy needed):
   --domain <name>      Get and renew a Let's Encrypt certificate automatically. Env: PISHA_DOMAIN
@@ -111,7 +118,7 @@ for (const [label, n] of [['port', PORT], ['http port', HTTP_PORT]]) {
     process.exit(2)
   }
 }
-if (DOMAIN && !/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(DOMAIN)) {
+if (DOMAIN && !isDomain(DOMAIN)) {
   process.stderr.write(`pisha-server: invalid domain "${DOMAIN}"\n`)
   process.exit(2)
 }
@@ -119,8 +126,7 @@ if (TLS_MODE === 'files' && !(TLS_CERT && TLS_KEY)) {
   process.stderr.write('pisha-server: --tls-cert and --tls-key go together\n')
   process.exit(2)
 }
-// (It goes into the commands the dashboard gives: nothing a shell would read.)
-if (PUBLIC_URL && !/^https?:\/\/[^\s/'"`$\\&|;<>()^%!]+(\/[^\s'"`$\\&|;<>()^%!]*)?$/.test(PUBLIC_URL)) {
+if (PUBLIC_URL && !isPublicUrl(PUBLIC_URL)) {
   process.stderr.write(`pisha-server: invalid public URL "${PUBLIC_URL}" (expected http(s)://host[:port])\n`)
   process.exit(2)
 }

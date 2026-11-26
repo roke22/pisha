@@ -160,6 +160,15 @@ pisha-server --domain pisha.example.com --acme-email tu@example.com
 
 Consigue y renueva su certificado HTTPS solo, y el panel queda en `https://pisha.example.com`. (En Linux, los puertos 80 y 443 necesitan privilegios: arráncalo con `sudo`, o usa la imagen de Docker con `-p 80:80 -p 443:443 -e PISHA_DOMAIN=pisha.example.com`.)
 
+**Como servicio en un servidor Linux,** deja que se configure solo:
+
+```bash
+npm install -g pisha-server
+sudo env "PATH=$PATH" pisha-server setup
+```
+
+Pregunta cómo se llega a él (tu dominio, tu proxy inverso o solo esa máquina), qué usuario lo ejecuta (uno propio, `pisha`, por defecto) y dónde van sus datos, se trae los datos de un servidor que hubieras arrancado a mano, e instala un servicio de systemd que arranca con la máquina. Vuelve a ejecutarlo para cambiar cualquiera de esas cosas; `pisha-server service status|restart|logs|remove` para lo demás. Sin `sudo`, instala en cambio un servicio de tu usuario (detrás de un proxy, o local).
+
 ## 2. Añade tus ordenadores
 
 En el panel, abre **Máquinas → Añadir máquina** (o el **+** junto a *Máquinas* en la barra lateral). La página te guía: elige el sistema del ordenador (Linux, macOS o Windows) y los agentes que quieres instalar en él (Claude Code y, si los quieres, Codex CLI o Grok CLI), y ejecuta en ese ordenador el único comando que te muestra. Instala todo lo que necesita y lo conecta a tu panel; la página te dice cuándo se ha conectado y te deja elegir allí mismo sus carpetas.
