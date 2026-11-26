@@ -61,6 +61,9 @@ export function cantAnswer(i) {
   return null
 }
 
+// The coordinator a worker's permission prompt went to, while it is there.
+const relayedTo = s => s.activity?.relayed_to ?? null
+
 // What a session waiting for permission wants to run.
 const permWhat = s => { const a = s.activity ?? {}; return a.tool?.name ? [a.tool.name, a.tool.summary].filter(Boolean).join(' · ') : a.waiting ?? '' }
 
@@ -79,7 +82,8 @@ function entries() {
   const tells = open.filter(i => i.kind === 'tell').map(i => ({ key: `i${i.id}`, kind: 'tell', i, at: i.created_at }))
   const newest = (a, b) => b.at - a.at
   return [
-    { id: 'decide', label: T.ibxDecide, list: [...perms.sort(newest), ...asks.sort(newest), ...approvals] },
+    // (A worker's prompt its coordinator is deciding comes after what the coordinators ask.)
+    { id: 'decide', label: T.ibxDecide, list: [...perms.filter(e => !relayedTo(e.s)).sort(newest), ...asks.sort(newest), ...perms.filter(e => relayedTo(e.s)).sort(newest), ...approvals] },
     { id: 'know', label: T.inboxTell, list: tells.sort(newest) },
   ]
 }
@@ -168,7 +172,7 @@ function row(e, on, tab = 'pending') {
     meta = [who(e.s.name), esc(teamOf(e.s.name))]
   } else if (e.kind === 'perm') {
     dot = 'warn'; title = T.ibxPermTitle(e.s.name, permWhat(e.s))
-    meta = [who(e.s.name), esc(teamOf(e.s.name))]
+    meta = [who(e.s.name), esc(teamOf(e.s.name)), relayedTo(e.s) ? esc(T.ibxWithCoord(relayedTo(e.s))) : '']
   } else if (e.kind === 'approve') {
     dot = 'warn'; title = T.ibxApproveTitle(e.s.name)
     meta = [who(e.s.name), esc(T.approveNote)]
@@ -221,8 +225,12 @@ function detail(e) {
     const s = e.s
     return `<article class="ibx-card">${head(s.name, T.ibxPermission, e.at, false)}
       <div class="ibx-body"><h2 class="ibx-q">${esc(T.ibxPermTitle(s.name, ''))}</h2><pre class="ibx-perm">${esc(permWhat(s) || status(s).text)}</pre>
-      <p class="ibx-note">${esc(T.ibxPermHint)}</p>
-      <div class="ibx-actions"><a class="btn primary ok" href="#/s/${encodeURIComponent(s.name)}">${esc(T.ibxOpenSession)}</a></div></div></article>`
+      ${relayedTo(s)
+        // (With its coordinator: answered there, or asked here; its terminal is only the way around.)
+        ? `<p class="ibx-note" data-relayed>${esc(T.ibxPermRelayedHint(relayedTo(s)))}</p>
+      <div class="ibx-actions"><a class="btn" href="#/s/${encodeURIComponent(s.name)}">${esc(T.ibxOpenSession)}</a></div>`
+        : `<p class="ibx-note">${esc(T.ibxPermHint)}</p>
+      <div class="ibx-actions"><a class="btn primary ok" href="#/s/${encodeURIComponent(s.name)}">${esc(T.ibxOpenSession)}</a></div>`}</div></article>`
   }
   if (e.kind === 'approve') {
     const s = e.s

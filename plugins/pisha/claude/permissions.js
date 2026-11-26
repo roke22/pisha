@@ -217,6 +217,20 @@ export function withdrawIfAmbiguous(s, tool, input) {
   }
 }
 
+// A relayed Claude Code prompt answered at the session (its call ran or
+// failed): its approvers are told, so nobody waits on an answer that no
+// longer counts. (Only a request whose call was matched exactly: the others
+// expire.)
+export function withdrawAnswered(s, tool, input) {
+  const json = JSON.stringify(input)
+  for (const [id, p] of pendingPermissions) {
+    if (p.typed || p.withdrawn || p.tool !== tool || p.shownJson !== json) continue
+    pendingPermissions.delete(id)
+    const text = `🔐 Permission ${id} WITHDRAWN: it was answered in ${s.name}'s terminal (its call ran or failed). Don't answer it; if you asked the user about it, close that question (edit_inbox).`
+    for (const chat_id of p.approvers) void call('sendMessage', { chat_id, text }, { s }).catch(e => log(`withdrawal notice to ${chat_id} failed: ${e.message}`))
+  }
+}
+
 // Who is asked now: [] when nobody may answer (or the session logged out
 // while checking: nothing is sent).
 async function currentApprovers(s) {

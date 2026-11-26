@@ -775,6 +775,15 @@ test('plugin: full coordinator/worker flow', async () => {
   const later = await coord.waitChannel(p => p.content.includes('yes kmnop'), 'late-hook permission request')
   assert.match(later.content, /curl -s https:\/\/evil\.example/)
   await coord.tool('reply', { chat_id: 'w1', text: 'no kmnop' })
+  // Answered in the worker's own terminal (its call ran): the coordinator is
+  // told, and its answer no longer counts.
+  await runHook(w1, { hook_event_name: 'PreToolUse', session_id: 's', cwd: '/x', tool_name: 'Bash', tool_use_id: 'z8', tool_input: { command: 'rm notas/borrar.txt' } })
+  w1.notify('notifications/claude/channel/permission_request', { request_id: 'pqrst', tool_name: 'Bash', description: 'Delete', input_preview: '{"command":"rm notas/borrar.txt"}' })
+  await coord.waitChannel(p => p.content.includes('yes pqrst'), 'request answered at the session')
+  await runHook(w1, { hook_event_name: 'PostToolUse', session_id: 's', cwd: '/x', tool_name: 'Bash', tool_use_id: 'z8', tool_input: { command: 'rm notas/borrar.txt' }, tool_response: {} })
+  const answeredThere = await coord.waitChannel(p => p.content.includes('pqrst WITHDRAWN'), 'answered-at-the-session notice')
+  assert.match(answeredThere.content, /answered in w1's terminal/)
+  await coord.tool('reply', { chat_id: 'w1', text: 'yes pqrst' })
 
   // 8b. Security: answers only from whoever was asked, about that request, once.
   // The same code again (already answered) and an unknown code are ignored.

@@ -776,6 +776,37 @@ test('the inbox, running: who is at work now, with its clock, and it opens its s
   await expect(page).toHaveURL(/#\/s\/busy1$/)
 })
 
+test('the inbox: a worker\'s permission prompt its coordinator is deciding is one entry, after the coordinator\'s question', async ({ page }) => {
+  const c = await startSession(server, 'relc', 'coordinator')
+  const w = await startSession(server, 'relw', 'worker', 'relc')
+  const t0 = Date.now()
+  await w.observe([
+    { kind: 'prompt', ts: t0 }, { kind: 'tool_start', id: 'r1', tool: 'Bash', ts: t0 + 10, summary: 'rm notas/borrar.txt' },
+    { kind: 'notification', type: 'permission_prompt', text: 'Claude needs your permission to use Bash', ts: t0 + 20 },
+  ])
+  await w.send('relc', '🔐 Permission: "Bash"\nSession: relw\nReply "yes abcde" or "no abcde"\nDescription (from the session): "Delete"\nInput (from the session): {"command":"rm notas/borrar.txt"}')
+  await c.call('askUser', { text: 'relw wants to delete notas/borrar.txt: approve?', options: ['Approve', 'Deny'] })
+  await signIn(page, '#/inbox')
+  const box = page.locator('#inbox')
+  // The coordinator's question first; the prompt after it, said to be with the coordinator.
+  await expect(box.locator('.ibx-item').first()).toContainText('relw wants to delete')
+  const perm = box.locator('.ibx-item', { hasText: 'relw asks for permission' })
+  await expect(perm).toContainText('relc is deciding it')
+  await perm.click()
+  await expect(box.locator('.ibx-detail [data-relayed]')).toContainText('relc is told')
+  // Its terminal is still there, but not as the way to answer it.
+  await expect(box.locator('.ibx-detail .ibx-actions a.btn')).toHaveCount(1)
+  await expect(box.locator('.ibx-detail .ibx-actions a.btn.primary')).toHaveCount(0)
+  // Withdrawn (answered in its terminal, or no longer valid): answered at the session again.
+  await w.send('relc', '🔐 Permission abcde WITHDRAWN: it was answered in relw\'s terminal (its call ran or failed). Don\'t answer it.')
+  await expect(box.locator('.ibx-detail [data-relayed]')).toHaveCount(0)
+  await expect(box.locator('.ibx-detail .ibx-actions a.btn.primary')).toHaveCount(1)
+  await expect(perm).not.toContainText('relc is deciding it')
+  // Its call ran: nothing waits on it.
+  await w.observe([{ kind: 'tool_end', id: 'r1', tool: 'Bash', ts: Date.now(), ok: true }])
+  await expect(box.locator('.ibx-item', { hasText: 'relw asks for permission' })).toHaveCount(0)
+})
+
 test('the chat: what is opened stays open when more arrives, and text being selected is not redrawn away', async ({ page }) => {
   const s = await startSession(server, 'keep1', 'worker', 'coord')
   const t0 = Date.now()

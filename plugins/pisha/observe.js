@@ -394,8 +394,8 @@ const MAX_HOOK_BYTES = 64 * 1024 * 1024
 // terminal (agents without channels: Codex CLI's PermissionRequest hook, Grok
 // CLI's permission_prompt notification), for the tool call it asks about;
 // tool null when that can't be told (Grok names none: the one call still
-// running, if there is exactly one). onToolEnd(tool, input): with it, a call of
-// the main agent that ran or failed (its prompt, if any, is gone).
+// running, if there is exactly one). onToolEnd(tool, input): a call of the
+// main agent that ran or failed (its prompt, if any, is gone), for any agent.
 export function createObserver({ level = 'full', send, log = () => {}, contextProvider = () => '', onToolInput = null, onPrompt = null, onChannelSeen = null, stopCheck = null, onConversation = null, onPermissionAsk = null, onToolEnd = null }) {
   level = normalizeLevel(level) ?? 'full'
   const limits = LIMITS[level]
@@ -556,6 +556,10 @@ export function createObserver({ level = 'full', send, log = () => {}, contextPr
     if (!input || typeof input !== 'object') return
     if (input.hook_event_name === 'PreToolUse' && onToolInput) { try { onToolInput(String(input.tool_name ?? ''), input.tool_input) } catch {} }
     if (onPermissionAsk) permissionHooks(input)
+    // (Claude Code: a call that ran or failed — its relayed prompt, if any, was answered at the session.)
+    else if (onToolEnd && (input.hook_event_name === 'PostToolUse' || input.hook_event_name === 'PostToolUseFailure') && !input.agent_id) {
+      try { onToolEnd(String(input.tool_name ?? ''), input.tool_input ?? null) } catch (err) { log(`observe: tool end callback failed: ${err.message}`) }
+    }
     // Claude Code's working directory (it can change during a session).
     const cwdChanged = typeof input.cwd === 'string' && input.cwd !== cwd
     if (cwdChanged) cwd = input.cwd
